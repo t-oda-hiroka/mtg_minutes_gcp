@@ -45,4 +45,4 @@ sdist/
 var/
 wheels/
 .installed.cfg
-*.egg 
+*.egg venv/
