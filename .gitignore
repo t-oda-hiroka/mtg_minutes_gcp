@@ -3,27 +3,17 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.so
-.Python
-build/
-develop-eggs/
+
+# Distribution / packaging
 dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
+build/
 *.egg-info/
-.installed.cfg
-*.egg
 
 # Virtual Environment
 venv/
 ENV/
 env/
+.env
 
 # IDE
 .idea/
@@ -35,6 +25,24 @@ env/
 .DS_Store
 Thumbs.db
 
-# Project specific
+# Logs
 *.log
-.env 
+
+# Project specific
+*.pyc
+.pytest_cache/
+
+# Python
+.Python
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+.installed.cfg
+*.egg 
