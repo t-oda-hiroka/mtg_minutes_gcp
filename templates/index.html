@@ -30,6 +30,33 @@
         .markdown-content ul {
             margin-bottom: 1em;
         }
+        .step {
+            margin-bottom: 0.5rem;
+            color: #6c757d;
+        }
+        .step.active {
+            color: #212529;
+            font-weight: 500;
+        }
+        .step.completed {
+            color: #198754;
+            font-weight: 500;
+        }
+        .step-indicator {
+            display: inline-block;
+            width: 20px;
+            text-align: center;
+            margin-right: 5px;
+        }
+        .step.active .step-indicator {
+            color: #0d6efd;
+            font-weight: bold;
+        }
+        .step.completed .step-indicator::before {
+            content: "✓";
+            color: #198754;
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
@@ -51,13 +78,40 @@
                         <label for="audioFile" class="form-label">音声ファイルを選択してください</label>
                         <input type="file" class="form-control" id="audioFile" accept="audio/*" required>
                     </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="showDebugInfo">
+                        <label class="form-check-label" for="showDebugInfo">
+                            デバッグ情報を表示
+                        </label>
+                    </div>
                     <button type="submit" class="btn btn-primary">アップロード & 議事録作成</button>
                 </form>
 
                 <div id="loading" class="loading">
-                    <div class="d-flex align-items-center">
+                    <div class="mb-3">
                         <strong>処理中...</strong>
-                        <div class="spinner-border ms-3" role="status"></div>
+                        <div class="progress mt-2">
+                            <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    <div id="processingSteps" class="mt-3">
+                        <div id="step1" class="step">
+                            <span class="step-indicator">◯</span> 音声ファイルを準備中...
+                        </div>
+                        <div id="step2" class="step">
+                            <span class="step-indicator">◯</span> 音声認識を実行中...
+                        </div>
+                        <div id="step3" class="step">
+                            <span class="step-indicator">◯</span> 議事録を生成中...
+                        </div>
+                        <div id="step4" class="step">
+                            <span class="step-indicator">◯</span> 処理完了
+                        </div>
+                    </div>
+                    
+                    <div id="debugInfo" class="mt-3 p-3 bg-light small" style="display: none; max-height: 200px; overflow-y: auto;">
+                        <h6>デバッグ情報</h6>
+                        <div id="debugLog"></div>
                     </div>
                 </div>
             </div>
@@ -73,7 +127,16 @@
                     </h2>
                     <div id="collapseOne" class="accordion-collapse collapse" aria-labelledby="headingOne" data-bs-parent="#transcriptionAccordion">
                         <div class="accordion-body">
-                            <pre id="rawText" class="mb-0"></pre>
+                            <div class="mb-3">
+                                <div id="rawText" class="form-control" style="min-height: 200px; white-space: pre-wrap;" contenteditable="true"></div>
+                            </div>
+                            <button id="regenerateMinutesBtn" class="btn btn-primary">編集内容で議事録を再生成</button>
+                            <div id="regenerateLoading" class="loading mt-2">
+                                <div class="d-flex align-items-center">
+                                    <strong>議事録を再生成中...</strong>
+                                    <div class="spinner-border ms-3 spinner-border-sm" role="status"></div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -82,7 +145,70 @@
             <div class="card">
                 <div class="card-body">
                     <h2>生成された議事録</h2>
-                    <div id="minutes" class="markdown-content mt-3"></div>
+                    <div class="mb-3">
+                        <button id="undoButton" class="btn btn-outline-secondary btn-sm" disabled>元に戻す</button>
+                        <span id="versionInfo" class="ms-2 text-muted small">バージョン: 1/1</span>
+                        <button id="exportToDriveBtn" class="btn btn-success btn-sm float-end">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-google me-1" viewBox="0 0 16 16">
+                                <path d="M15.545 6.558a9.42 9.42 0 0 1 .139 1.626c0 2.434-.87 4.492-2.384 5.885h.002C11.978 15.292 10.158 16 8 16A8 8 0 1 1 8 0a7.689 7.689 0 0 1 5.352 2.082l-2.284 2.284A4.347 4.347 0 0 0 8 3.166c-2.087 0-3.86 1.408-4.492 3.304a4.792 4.792 0 0 0 0 3.063h.003c.635 1.893 2.405 3.301 4.492 3.301 1.078 0 2.004-.276 2.722-.764h-.003a3.702 3.702 0 0 0 1.599-2.431H8v-3.08h7.545z"/>
+                            </svg>
+                            Google Driveに保存
+                        </button>
+                    </div>
+                    <div id="minutes" class="markdown-content mt-3" contenteditable="true"></div>
+
+                    <div class="mt-4">
+                        <h5>議事録を修正する</h5>
+                        <div class="mb-3">
+                            <label for="editPrompt" class="form-label">修正指示</label>
+                            <textarea class="form-control" id="editPrompt" rows="2" placeholder="例：「第2段落をもっと簡潔にまとめてください」「鈴木さんの発言をより詳しく記載してください」"></textarea>
+                        </div>
+                        <button id="applyEditBtn" class="btn btn-primary">修正を適用</button>
+                        <div id="editLoading" class="loading mt-2">
+                            <div class="d-flex align-items-center">
+                                <strong>修正中...</strong>
+                                <div class="spinner-border ms-3 spinner-border-sm" role="status"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Google Driveエクスポート確認モーダル -->
+    <div class="modal fade" id="exportModal" tabindex="-1" aria-labelledby="exportModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="exportModalLabel">Google Driveにエクスポート</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="exportInfoArea">
+                        <div class="alert alert-info">
+                            <strong>エクスポート情報を取得中...</strong>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="exportTitle" class="form-label">ドキュメントタイトル</label>
+                        <input type="text" class="form-control" id="exportTitle" value="議事録">
+                    </div>
+                    <div id="exportProcessing" class="d-none">
+                        <div class="d-flex align-items-center">
+                            <strong>エクスポート中...</strong>
+                            <div class="spinner-border ms-3 spinner-border-sm" role="status"></div>
+                        </div>
+                    </div>
+                    <div id="exportSuccess" class="d-none alert alert-success">
+                        <p>ドキュメントが正常にエクスポートされました。</p>
+                        <p>ドキュメントURL: <a id="exportedDocLink" href="#" target="_blank">ドキュメントを開く</a></p>
+                    </div>
+                    <div id="exportError" class="d-none alert alert-danger"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">キャンセル</button>
+                    <button type="button" class="btn btn-primary" id="confirmExportBtn">エクスポート</button>
                 </div>
             </div>
         </div>
@@ -90,6 +216,47 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+        // 議事録のバージョン履歴を管理する配列
+        let minutesHistory = [];
+        let currentVersionIndex = -1;
+        let progressPoller = null;
+
+        // ページ読み込み時にローカルストレージからデータを復元
+        document.addEventListener('DOMContentLoaded', function() {
+            // リダイレクト後のセッション維持をチェック
+            try {
+                const savedMinutes = localStorage.getItem('lastMinutes');
+                const savedRawText = localStorage.getItem('lastRawText');
+                
+                if (savedMinutes) {
+                    const minutes = document.getElementById('minutes');
+                    const rawText = document.getElementById('rawText');
+                    const resultContainer = document.getElementById('resultContainer');
+                    
+                    // 保存されていた議事録を表示
+                    minutes.innerHTML = savedMinutes;
+                    if (savedRawText) {
+                        rawText.textContent = savedRawText;
+                    }
+                    
+                    // 結果表示エリアを表示
+                    resultContainer.style.display = 'block';
+                    
+                    // 履歴に追加
+                    addToHistory(savedMinutes);
+                    
+                    // デバッグ情報の追加
+                    addDebugLog('前回の議事録データを復元しました');
+                }
+                
+                // 読み込み後にローカルストレージをクリア（二重読み込み防止）
+                localStorage.removeItem('lastMinutes');
+                localStorage.removeItem('lastRawText');
+            } catch (e) {
+                console.error('保存データの復元に失敗:', e);
+            }
+        });
+
         document.getElementById('uploadForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             
@@ -113,8 +280,35 @@
             resultContainer.style.display = 'none';
             rawText.innerHTML = '';
             minutes.innerHTML = '';
+            
+            // プログレスバーとステップ表示をリセット
+            resetProgress();
+            
+            // 初期ステップを表示
+            const progressBar = document.getElementById('progressBar');
+            progressBar.style.width = '5%';
+            progressBar.setAttribute('aria-valuenow', 5);
+            document.getElementById('step1').classList.add('active');
+            
+            // 処理中メッセージを表示
+            const progressMessage = document.createElement('div');
+            progressMessage.className = 'text-muted small mt-1';
+            progressMessage.textContent = '音声ファイルをアップロード中...';
+            progressBar.parentElement.appendChild(progressMessage);
+            
+            // 履歴をリセット
+            minutesHistory = [];
+            currentVersionIndex = -1;
+            updateVersionInfo();
 
             try {
+                // 既存のポーラーがあれば停止
+                if (progressPoller) {
+                    clearInterval(progressPoller);
+                    progressPoller = null;
+                }
+                
+                // ファイルをアップロードしてタスクIDを取得
                 const response = await fetch('/transcribe/', {
                     method: 'POST',
                     body: formData
@@ -125,16 +319,218 @@
                 }
 
                 const data = await response.json();
-                rawText.textContent = data.raw_text;
-                minutes.innerHTML = markdownToHtml(data.minutes);
-                resultContainer.style.display = 'block';
+                const taskId = data.task_id;
+                
+                if (!taskId) {
+                    throw new Error('タスクIDが取得できませんでした');
+                }
+                
+                addDebugLog(`タスクID取得: ${taskId}`);
+                
+                // 定期的にタスク状態を取得
+                startProgressPolling(taskId, rawText, minutes, loading, resultContainer);
+                
             } catch (error) {
                 alert('エラーが発生しました: ' + error.message);
-            } finally {
                 loading.classList.remove('active');
+                console.error(error);
             }
         });
+        
+        // 進捗状況のポーリングを開始する関数
+        function startProgressPolling(taskId, rawTextElement, minutesElement, loadingElement, resultContainer) {
+            // ポーリング間隔（ミリ秒）
+            const POLLING_INTERVAL = 500;
+            
+            // 前回の進捗状態
+            let previousProgress = 0;
+            
+            // ポーリング開始
+            progressPoller = setInterval(async () => {
+                try {
+                    const response = await fetch(`/task_status/${taskId}`);
+                    
+                    if (!response.ok) {
+                        if (response.status === 404) {
+                            // タスクが見つからない場合はポーリングを停止
+                            addDebugLog('タスクが見つかりません。ポーリングを停止します。');
+                            clearInterval(progressPoller);
+                            progressPoller = null;
+                            loadingElement.classList.remove('active');
+                            return;
+                        }
+                        throw new Error(`サーバーエラー: ${response.status}`);
+                    }
+                    
+                    const data = await response.json();
+                    console.log('Progress update:', data);
+                    
+                    // 進捗情報に変更があった場合のみログに追加
+                    if (data.progress !== previousProgress) {
+                        addDebugLog(`進捗状況更新: 進捗=${data.progress}%, ステップ=${data.step}, ${data.message || ''}`);
+                        previousProgress = data.progress;
+                    }
+                    
+                    // 進捗状況を更新
+                    updateProgress(data);
+                    
+                    // 処理が完了していて結果がある場合は表示
+                    if (data.completed && data.result) {
+                        rawTextElement.textContent = data.result.raw_text;
+                        const formattedMinutes = markdownToHtml(data.result.minutes);
+                        minutesElement.innerHTML = formattedMinutes;
+                        
+                        // 初期バージョンを履歴に追加
+                        addToHistory(formattedMinutes);
+                        
+                        // 結果表示エリアを表示
+                        resultContainer.style.display = 'block';
+                        
+                        // ポーリングを停止
+                        clearInterval(progressPoller);
+                        progressPoller = null;
+                        
+                        // ローディング表示を非表示（少し遅延させて最終的なプログレス表示を見せる）
+                        setTimeout(() => {
+                            loadingElement.classList.remove('active');
+                        }, 1000);
+                        
+                        addDebugLog('処理が完了しました');
+                    }
+                    
+                    // エラーが発生した場合
+                    if (data.error) {
+                        addDebugLog(`エラー: ${data.message}`);
+                        alert(`処理中にエラーが発生しました: ${data.message}`);
+                        
+                        // ポーリングを停止
+                        clearInterval(progressPoller);
+                        progressPoller = null;
+                        
+                        // ローディング表示を非表示
+                        loadingElement.classList.remove('active');
+                    }
+                    
+                } catch (error) {
+                    console.error('ポーリング中にエラー:', error);
+                    addDebugLog(`ポーリングエラー: ${error.message}`);
+                    
+                    // エラーが複数回発生した場合はポーリングを停止
+                    clearInterval(progressPoller);
+                    progressPoller = null;
+                    
+                    // ローディング表示を非表示
+                    loadingElement.classList.remove('active');
+                }
+            }, POLLING_INTERVAL);
+        }
 
+        // プログレスバーとステップ表示をリセットする関数
+        function resetProgress() {
+            const progressBar = document.getElementById('progressBar');
+            progressBar.style.width = '0%';
+            progressBar.setAttribute('aria-valuenow', 0);
+            
+            const steps = document.querySelectorAll('.step');
+            steps.forEach(step => {
+                step.classList.remove('active', 'completed');
+                const indicator = step.querySelector('.step-indicator');
+                indicator.textContent = '◯';
+            });
+            
+            // 最初のステップをアクティブにする
+            document.getElementById('step1').classList.add('active');
+            
+            // デバッグログをリセット
+            document.getElementById('debugLog').innerHTML = '';
+        }
+        
+        // デバッグ情報をログに追加する関数
+        function addDebugLog(message) {
+            const showDebug = document.getElementById('showDebugInfo').checked;
+            if (!showDebug) return;
+            
+            const debugLog = document.getElementById('debugLog');
+            const logEntry = document.createElement('div');
+            logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            debugLog.appendChild(logEntry);
+            
+            // スクロールを最下部に移動
+            debugLog.scrollTop = debugLog.scrollHeight;
+            
+            // デバッグ情報を表示
+            document.getElementById('debugInfo').style.display = 'block';
+        }
+        
+        // デバッグチェックボックスの変更イベント
+        document.getElementById('showDebugInfo').addEventListener('change', function() {
+            document.getElementById('debugInfo').style.display = this.checked ? 'block' : 'none';
+        });
+
+        // 処理状況に応じてプログレスバーとステップ表示を更新する関数
+        function updateProgress(status) {
+            console.log("Updating progress with status:", status);
+            
+            const progressBar = document.getElementById('progressBar');
+            const progress = status.progress || 0;
+            
+            // プログレスバーを更新
+            progressBar.style.width = `${progress}%`;
+            progressBar.setAttribute('aria-valuenow', progress);
+            
+            // ステータスメッセージを更新（あれば）
+            if (status.message) {
+                const message = document.createElement('div');
+                message.textContent = status.message;
+                message.className = 'text-muted small mt-1';
+                
+                // 既存のメッセージがあれば削除
+                const existingMessage = progressBar.parentElement.querySelector('.text-muted');
+                if (existingMessage) {
+                    existingMessage.remove();
+                }
+                
+                progressBar.parentElement.appendChild(message);
+            }
+            
+            // エラーの場合は赤色に変更
+            if (status.error) {
+                progressBar.classList.remove('bg-primary');
+                progressBar.classList.add('bg-danger');
+                return;
+            }
+            
+            // ステップが指定されている場合は更新
+            if (status.step !== undefined) {
+                // ステップを更新
+                const steps = document.querySelectorAll('.step');
+                steps.forEach((step, index) => {
+                    const stepNumber = index + 1;
+                    const stepIndicator = step.querySelector('.step-indicator');
+                    
+                    // 現在のステップ
+                    if (stepNumber === status.step) {
+                        step.classList.add('active');
+                        step.classList.remove('completed');
+                        stepIndicator.textContent = '◯';
+                    }
+                    // 完了したステップ
+                    else if (stepNumber < status.step) {
+                        step.classList.remove('active');
+                        step.classList.add('completed');
+                        // テキストコンテンツをクリアし、CSSの::beforeを使用してチェックマークを表示
+                        stepIndicator.textContent = '';
+                    }
+                    // これからのステップ
+                    else {
+                        step.classList.remove('active', 'completed');
+                        stepIndicator.textContent = '◯';
+                    }
+                });
+            }
+        }
+
+        // マークダウンをHTMLに変換する関数
         function markdownToHtml(markdown) {
             // 非常に簡単なMarkdown変換（実際のプロジェクトではmarked.jsなどの使用を推奨）
             return markdown
@@ -144,6 +540,153 @@
                 .replace(/\n\n/g, '</p><p>')
                 .replace(/\[([^\]]+)\]/g, '$1');
         }
+        
+        // 議事録を履歴に追加する関数
+        function addToHistory(content) {
+            // 現在のバージョンよりも後のバージョンがある場合は削除（UNDOした後に新しい編集をした場合）
+            if (currentVersionIndex < minutesHistory.length - 1) {
+                minutesHistory = minutesHistory.slice(0, currentVersionIndex + 1);
+            }
+            
+            minutesHistory.push(content);
+            currentVersionIndex = minutesHistory.length - 1;
+            
+            // UNDOボタンの状態を更新
+            document.getElementById('undoButton').disabled = currentVersionIndex <= 0;
+            
+            // バージョン情報を更新
+            updateVersionInfo();
+        }
+        
+        // バージョン情報を更新する関数
+        function updateVersionInfo() {
+            const versionInfo = document.getElementById('versionInfo');
+            if (minutesHistory.length > 0) {
+                versionInfo.textContent = `バージョン: ${currentVersionIndex + 1}/${minutesHistory.length}`;
+            } else {
+                versionInfo.textContent = 'バージョン: 0/0';
+            }
+        }
+        
+        // 議事録の直接編集を検知してバージョン履歴に追加
+        document.getElementById('minutes').addEventListener('blur', function() {
+            // 内容が変更された場合のみ履歴に追加
+            if (currentVersionIndex >= 0 && this.innerHTML !== minutesHistory[currentVersionIndex]) {
+                addToHistory(this.innerHTML);
+            }
+        });
+        
+        // UNDOボタンのイベントリスナー
+        document.getElementById('undoButton').addEventListener('click', function() {
+            if (currentVersionIndex > 0) {
+                currentVersionIndex--;
+                document.getElementById('minutes').innerHTML = minutesHistory[currentVersionIndex];
+                
+                // UNDOボタンの状態を更新
+                this.disabled = currentVersionIndex <= 0;
+                
+                // バージョン情報を更新
+                updateVersionInfo();
+            }
+        });
+        
+        // 修正適用ボタンのイベントリスナー
+        document.getElementById('applyEditBtn').addEventListener('click', async function() {
+            const editPrompt = document.getElementById('editPrompt').value.trim();
+            if (!editPrompt) {
+                alert('修正指示を入力してください');
+                return;
+            }
+            
+            const minutes = document.getElementById('minutes');
+            const currentMinutes = minutes.innerHTML;
+            const editLoading = document.getElementById('editLoading');
+            
+            // ローディング表示
+            editLoading.classList.add('active');
+            
+            try {
+                const response = await fetch('/edit-minutes/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        minutes: minutes.innerHTML,
+                        prompt: editPrompt
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error('エラーが発生しました');
+                }
+                
+                const data = await response.json();
+                minutes.innerHTML = data.edited_minutes;
+                
+                // 新しいバージョンを履歴に追加
+                addToHistory(data.edited_minutes);
+                
+                // 入力欄をクリア
+                document.getElementById('editPrompt').value = '';
+            } catch (error) {
+                alert('修正中にエラーが発生しました: ' + error.message);
+                console.error(error);
+            } finally {
+                // ローディング表示を非表示
+                editLoading.classList.remove('active');
+            }
+        });
+
+        // Google Driveにエクスポートするボタンのイベントリスナー
+        document.getElementById('exportToDriveBtn').addEventListener('click', async function() {
+            const minutes = document.getElementById('minutes');
+            
+            if (!minutes.innerHTML.trim()) {
+                alert('エクスポートする議事録がありません');
+                return;
+            }
+            
+            try {
+                // 現在の議事録データとテキストをローカルストレージに保存
+                localStorage.setItem('lastMinutes', minutes.innerHTML);
+                const rawText = document.getElementById('rawText');
+                if (rawText.textContent) {
+                    localStorage.setItem('lastRawText', rawText.textContent);
+                }
+                
+                // デバッグ情報の追加
+                addDebugLog('議事録データをローカルストレージに保存しました');
+
+                // 議事録のタイトルを取得（h1タグの内容）
+                let title = '議事録';
+                const h1Match = minutes.innerHTML.match(/<h1>(.*?)<\/h1>/);
+                if (h1Match && h1Match[1]) {
+                    title = h1Match[1];
+                }
+                
+                // 現在の日時を追加
+                const now = new Date();
+                const dateStr = now.toISOString().split('T')[0];
+                title = `${title}_${dateStr}`;
+                
+                // コンテンツをURLエンコード
+                const encodedContent = encodeURIComponent(minutes.innerHTML);
+                const encodedTitle = encodeURIComponent(title);
+                
+                // 認証URL構築（contentをエンコードして渡す）
+                const fullAuthUrl = `/oauth/google?title=${encodedTitle}&content=${encodedContent}`;
+                
+                // デバッグ情報
+                addDebugLog(`Google Driveへエクスポート開始: ${title}`);
+                
+                // 直接ページをリダイレクト
+                window.location.href = fullAuthUrl;
+            } catch (error) {
+                alert('エクスポート処理の開始中にエラーが発生しました: ' + error.message);
+                console.error(error);
+            }
+        });
     </script>
 </body>
 </html> 
