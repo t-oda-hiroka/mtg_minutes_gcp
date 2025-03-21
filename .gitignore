@@ -46,3 +46,5 @@ var/
 wheels/
 .installed.cfg
 *.egg venv/
+.env
+.env
