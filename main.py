@@ -23,6 +23,7 @@ from google.oauth2.credentials import Credentials
 import uuid
 import secrets
 from urllib.parse import quote
+from bs4 import BeautifulSoup
 
 # ロギングの設定
 logging.basicConfig(level=logging.INFO)
@@ -268,10 +269,8 @@ async def export_to_google_drive(content, title, token_info):
     try:
         logger.info(f"Google Driveエクスポート開始: {title}")
         
-        # HTMLのサニタイズ処理（コンテンツがHTMLの場合）
-        content_text = content
-        if "<" in content and ">" in content:
-            content_text = html_to_plain_text(content)
+        # HTMLの処理
+        is_html = "<" in content and ">" in content
         
         # アクセストークンの確認
         if "access_token" not in token_info:
@@ -307,22 +306,24 @@ async def export_to_google_drive(content, title, token_info):
         
         logger.info(f"ドキュメント作成成功: {document_id}")
         
-        # ドキュメントの内容を更新
-        requests = [
-            {
-                'insertText': {
-                    'location': {
-                        'index': 1
-                    },
-                    'text': content_text
-                }
-            }
-        ]
+        # HTMLからプレーンテキストに変換
+        if is_html:
+            content_text = html_to_plain_text(content)
+        else:
+            content_text = content
         
-        logger.info("ドキュメント内容を更新中...")
+        # テキストとして挿入
+        insert_text_request = {
+            'insertText': {
+                'location': {'index': 1},
+                'text': content_text
+            }
+        }
+        
+        logger.info("ドキュメント内容を挿入中...")
         docs_service.documents().batchUpdate(
             documentId=document_id,
-            body={'requests': requests}
+            body={'requests': [insert_text_request]}
         ).execute()
         
         logger.info("ドキュメント更新成功")
@@ -340,6 +341,288 @@ async def export_to_google_drive(content, title, token_info):
         import traceback
         logger.error(traceback.format_exc())
         raise
+
+def extract_styles_from_html(html_content, plain_text):
+    """
+    HTMLからスタイル情報を抽出し、Google Docs APIの形式に変換する
+    (plain_textは既にドキュメントに挿入されたテキスト)
+    """
+    from bs4 import BeautifulSoup
+    import re
+    
+    requests = []
+    
+    try:
+        soup = BeautifulSoup(html_content, 'html.parser')
+        
+        # 見出しの処理
+        for i in range(1, 7):
+            heading_tag = f'h{i}'
+            headings = soup.find_all(heading_tag)
+            
+            for heading in headings:
+                heading_text = heading.get_text().strip()
+                if heading_text and heading_text in plain_text:
+                    # テキスト位置を検索
+                    start_index = plain_text.find(heading_text)
+                    if start_index != -1:
+                        end_index = start_index + len(heading_text)
+                        
+                        # 見出しスタイルの適用
+                        heading_request = {
+                            'updateParagraphStyle': {
+                                'range': {
+                                    'startIndex': start_index + 1,  # Google Docsは1から始まるインデックス
+                                    'endIndex': end_index + 1
+                                },
+                                'paragraphStyle': {
+                                    'namedStyleType': f'HEADING_{i}'
+                                },
+                                'fields': 'namedStyleType'
+                            }
+                        }
+                        requests.append(heading_request)
+        
+        # 太字の処理
+        for bold in soup.find_all(['b', 'strong']):
+            bold_text = bold.get_text().strip()
+            if bold_text and bold_text in plain_text:
+                start_index = plain_text.find(bold_text)
+                if start_index != -1:
+                    end_index = start_index + len(bold_text)
+                    
+                    bold_request = {
+                        'updateTextStyle': {
+                            'range': {
+                                'startIndex': start_index + 1,
+                                'endIndex': end_index + 1
+                            },
+                            'textStyle': {
+                                'bold': True
+                            },
+                            'fields': 'bold'
+                        }
+                    }
+                    requests.append(bold_request)
+        
+        # 斜体の処理
+        for italic in soup.find_all(['i', 'em']):
+            italic_text = italic.get_text().strip()
+            if italic_text and italic_text in plain_text:
+                start_index = plain_text.find(italic_text)
+                if start_index != -1:
+                    end_index = start_index + len(italic_text)
+                    
+                    italic_request = {
+                        'updateTextStyle': {
+                            'range': {
+                                'startIndex': start_index + 1,
+                                'endIndex': end_index + 1
+                            },
+                            'textStyle': {
+                                'italic': True
+                            },
+                            'fields': 'italic'
+                        }
+                    }
+                    requests.append(italic_request)
+        
+        # 下線の処理
+        for underline in soup.find_all('u'):
+            underline_text = underline.get_text().strip()
+            if underline_text and underline_text in plain_text:
+                start_index = plain_text.find(underline_text)
+                if start_index != -1:
+                    end_index = start_index + len(underline_text)
+                    
+                    underline_request = {
+                        'updateTextStyle': {
+                            'range': {
+                                'startIndex': start_index + 1,
+                                'endIndex': end_index + 1
+                            },
+                            'textStyle': {
+                                'underline': True
+                            },
+                            'fields': 'underline'
+                        }
+                    }
+                    requests.append(underline_request)
+                    
+        return requests
+    except Exception as e:
+        logger.error(f"スタイル抽出中にエラー: {str(e)}")
+        return []
+
+def extract_lists_from_html(html_content, plain_text):
+    """
+    HTMLからリスト要素を抽出し、Google Docs APIの形式に変換する
+    （bulletPresetを使わない方法）
+    """
+    from bs4 import BeautifulSoup
+    
+    requests = []
+    
+    try:
+        soup = BeautifulSoup(html_content, 'html.parser')
+        
+        # 番号付きリスト（ol）の処理
+        ordered_lists = soup.find_all('ol')
+        for ol_index, ol in enumerate(ordered_lists):
+            # リストIDの生成（一意である必要がある）
+            list_id = f"ol-{ol_index}"
+            
+            # まずリストの定義を作成
+            create_list_request = {
+                'createList': {
+                    'list': {
+                        'listId': list_id,
+                        'nestingLevels': [
+                            {
+                                'glyphType': 'DECIMAL',
+                                'indentFirstLine': {
+                                    'magnitude': 18,
+                                    'unit': 'PT'
+                                },
+                                'indentStart': {
+                                    'magnitude': 36,
+                                    'unit': 'PT'
+                                },
+                                'textStyle': {
+                                    'bold': False
+                                },
+                                'startNumber': 1
+                            }
+                        ]
+                    }
+                }
+            }
+            requests.append(create_list_request)
+            
+            # リストアイテムを処理
+            list_items = ol.find_all('li')
+            for li in list_items:
+                li_text = li.get_text().strip()
+                if li_text and li_text in plain_text:
+                    start_index = plain_text.find(li_text)
+                    if start_index != -1:
+                        end_index = start_index + len(li_text)
+                        
+                        # リストを適用
+                        apply_list_request = {
+                            'updateParagraphStyle': {
+                                'range': {
+                                    'startIndex': start_index + 1,  # Google Docsは1から始まる
+                                    'endIndex': end_index + 1
+                                },
+                                'paragraphStyle': {
+                                    'indentFirstLine': {
+                                        'magnitude': 18,
+                                        'unit': 'PT'
+                                    },
+                                    'indentStart': {
+                                        'magnitude': 36,
+                                        'unit': 'PT'
+                                    }
+                                },
+                                'fields': 'indentFirstLine,indentStart'
+                            }
+                        }
+                        requests.append(apply_list_request)
+        
+        # 箇条書きリスト（ul）の処理
+        unordered_lists = soup.find_all('ul')
+        for ul_index, ul in enumerate(unordered_lists):
+            # リストIDの生成
+            list_id = f"ul-{ul_index}"
+            
+            # リストの定義を作成
+            create_list_request = {
+                'createList': {
+                    'list': {
+                        'listId': list_id,
+                        'nestingLevels': [
+                            {
+                                'glyphType': 'DISC',
+                                'indentFirstLine': {
+                                    'magnitude': 18,
+                                    'unit': 'PT'
+                                },
+                                'indentStart': {
+                                    'magnitude': 36,
+                                    'unit': 'PT'
+                                }
+                            }
+                        ]
+                    }
+                }
+            }
+            requests.append(create_list_request)
+            
+            # リストアイテムを処理
+            list_items = ul.find_all('li')
+            for li in list_items:
+                li_text = li.get_text().strip()
+                if li_text and li_text in plain_text:
+                    start_index = plain_text.find(li_text)
+                    if start_index != -1:
+                        end_index = start_index + len(li_text)
+                        
+                        # 段落スタイルを適用
+                        apply_list_request = {
+                            'updateParagraphStyle': {
+                                'range': {
+                                    'startIndex': start_index + 1,
+                                    'endIndex': end_index + 1
+                                },
+                                'paragraphStyle': {
+                                    'indentFirstLine': {
+                                        'magnitude': 18,
+                                        'unit': 'PT'
+                                    },
+                                    'indentStart': {
+                                        'magnitude': 36,
+                                        'unit': 'PT'
+                                    }
+                                },
+                                'fields': 'indentFirstLine,indentStart'
+                            }
+                        }
+                        requests.append(apply_list_request)
+                        
+                        # 各行の前に箇条書き記号を挿入
+                        add_bullet_request = {
+                            'insertText': {
+                                'location': {
+                                    'index': start_index + 1
+                                },
+                                'text': '• '
+                            }
+                        }
+                        requests.append(add_bullet_request)
+        
+        return requests
+    except Exception as e:
+        logger.error(f"リスト抽出中にエラー: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return []
+
+# HTML形式の議事録からプレーンテキストを抽出する
+def html_to_plain_text(html_content: str) -> str:
+    """
+    HTML形式の議事録からプレーンテキストを抽出する
+    """
+    # HTMLタグを削除
+    text = re.sub(r'<[^>]+>', '\n', html_content)
+    
+    # 複数の改行を1つに
+    text = re.sub(r'\n+', '\n', text)
+    
+    # 前後の空白を削除
+    text = text.strip()
+    
+    return text
 
 # タスク状態を取得するAPIエンドポイント
 @app.get("/task_status/{task_id}")
@@ -677,21 +960,6 @@ async def export_to_drive(request: ExportToDriveRequest):
     except Exception as e:
         logger.error(f"議事録のエクスポート中にエラー: {str(e)}")
         raise HTTPException(status_code=500, detail=f"議事録のエクスポート中にエラー: {str(e)}")
-
-def html_to_plain_text(html_content: str) -> str:
-    """
-    HTML形式の議事録からプレーンテキストを抽出する
-    """
-    # HTMLタグを削除
-    text = re.sub(r'<[^>]+>', '\n', html_content)
-    
-    # 複数の改行を1つに
-    text = re.sub(r'\n+', '\n', text)
-    
-    # 前後の空白を削除
-    text = text.strip()
-    
-    return text 
 
 @app.post("/regenerate-minutes/")
 async def regenerate_minutes(request: RegenerateMinutesRequest):
