@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>議事録作成アプリ</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    <!-- Google APIs are no longer needed as we use a custom server-side folder browser -->
+    <!-- We removed these scripts to improve loading performance and avoid client-side auth issues -->
     <style>
         .loading {
             display: none;
@@ -57,6 +60,87 @@
             color: #198754;
             font-weight: bold;
         }
+        
+        /* フォルダブラウザのスタイル */
+        #folderBrowser {
+            border: 1px solid #dee2e6;
+            border-radius: 0.25rem;
+            background-color: #f8f9fa;
+            padding: 0.5rem;
+            margin-top: 0.5rem;
+            box-shadow: 0 0.125rem 0.25rem rgba(0,0,0,0.075);
+        }
+        #folderList {
+            background-color: white;
+        }
+        /* 展開/折りたたみボタンのスタイル強化 */
+        .folder-toggle-btn {
+            color: #0d6efd !important;
+            transition: all 0.2s ease;
+            font-size: 1.1rem;
+            border: 1px solid #e9ecef !important;
+            border-radius: 3px;
+            background-color: #f8f9fa;
+            margin-right: 5px !important;
+        }
+        .folder-toggle-btn:hover {
+            background-color: #e9ecef;
+            box-shadow: 0 0 0 2px rgba(13, 110, 253, 0.25);
+        }
+        .folder-toggle-btn[aria-expanded="true"] {
+            transform: rotate(90deg);
+            background-color: #e7f1ff;
+            border-color: #b6d4fe !important;
+        }
+        
+        /* フォルダアイテムのスタイル */
+        .folder-item {
+            border-radius: 4px;
+            transition: all 0.15s ease-in-out;
+            padding: 4px;
+            margin-bottom: 2px;
+        }
+        .folder-item:hover {
+            background-color: #f0f8ff;
+        }
+        .folder-item.selected {
+            background-color: #e7f1ff;
+            border-left: 3px solid #0d6efd;
+        }
+        .folder-name {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 250px;
+        }
+        
+        /* プレースホルダーアニメーション */
+        .folder-placeholder {
+            height: 24px;
+            border-radius: 4px;
+            background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+            margin-bottom: 4px;
+        }
+        @keyframes shimmer {
+            0% { background-position: -100% 0; }
+            100% { background-position: 100% 0; }
+        }
+        
+        /* アニメーション */
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+        .animate__animated {
+            animation-duration: 1s;
+            animation-fill-mode: both;
+        }
+        .animate__pulse {
+            animation-name: pulse;
+        }
     </style>
 </head>
 <body>
@@ -77,6 +161,15 @@
                     <div class="mb-3">
                         <label for="audioFile" class="form-label">音声ファイルを選択してください</label>
                         <input type="file" class="form-control" id="audioFile" accept="audio/*" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="transcriptionModel" class="form-label">文字起こしモデル</label>
+                        <select class="form-select" id="transcriptionModel">
+                            <option value="whisper-1" selected>Whisper</option>
+                            <option value="gpt-4o-mini-2024-07-18-preview">GPT-4o Mini Transcribe</option>
+                            <option value="gpt-4o-2024-05-13-preview">GPT-4o Transcribe</option>
+                        </select>
+                        <div class="form-text">使用する文字起こしモデルを選択してください</div>
                     </div>
                     <div class="form-check mb-3">
                         <input class="form-check-input" type="checkbox" id="showDebugInfo">
@@ -144,18 +237,36 @@
 
             <div class="card">
                 <div class="card-body">
-                    <h2>生成された議事録</h2>
+                    <h2>生成された議事録 <span class="badge bg-info">編集可能</span></h2>
+                    <div class="alert alert-info mb-3" role="alert">
+                        <i class="bi bi-pencil-square"></i> この議事録はテキスト編集ができます。内容をクリックして直接編集してください。
+                    </div>
                     <div class="mb-3">
                         <button id="undoButton" class="btn btn-outline-secondary btn-sm" disabled>元に戻す</button>
                         <span id="versionInfo" class="ms-2 text-muted small">バージョン: 1/1</span>
-                        <button id="exportToDriveBtn" class="btn btn-success btn-sm float-end">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-google me-1" viewBox="0 0 16 16">
-                                <path d="M15.545 6.558a9.42 9.42 0 0 1 .139 1.626c0 2.434-.87 4.492-2.384 5.885h.002C11.978 15.292 10.158 16 8 16A8 8 0 1 1 8 0a7.689 7.689 0 0 1 5.352 2.082l-2.284 2.284A4.347 4.347 0 0 0 8 3.166c-2.087 0-3.86 1.408-4.492 3.304a4.792 4.792 0 0 0 0 3.063h.003c.635 1.893 2.405 3.301 4.492 3.301 1.078 0 2.004-.276 2.722-.764h-.003a3.702 3.702 0 0 0 1.599-2.431H8v-3.08h7.545z"/>
-                            </svg>
-                            Google Driveに保存
-                        </button>
+                        <div class="btn-group float-end">
+                            <button id="exportToDriveBtn" class="btn btn-success btn-sm">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-google me-1" viewBox="0 0 16 16">
+                                    <path d="M15.545 6.558a9.42 9.42 0 0 1 .139 1.626c0 2.434-.87 4.492-2.384 5.885h.002C11.978 15.292 10.158 16 8 16A8 8 0 1 1 8 0a7.689 7.689 0 0 1 5.352 2.082l-2.284 2.284A4.347 4.347 0 0 0 8 3.166c-2.087 0-3.86 1.408-4.492 3.304a4.792 4.792 0 0 0 0 3.063h.003c.635 1.893 2.405 3.301 4.492 3.301 1.078 0 2.004-.276 2.722-.764h-.003a3.702 3.702 0 0 0 1.599-2.431H8v-3.08h7.545z"/>
+                                </svg>
+                                Google Driveに保存
+                            </button>
+                            <button id="exportToNotionBtn" class="btn btn-primary btn-sm">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-journal-text me-1" viewBox="0 0 16 16">
+                                    <path d="M5 10.5a.5.5 0 0 1 .5-.5h2a.5.5 0 0 1 0 1h-2a.5.5 0 0 1-.5-.5zm0-2a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 0 1h-5a.5.5 0 0 1-.5-.5zm0-2a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 0 1h-5a.5.5 0 0 1-.5-.5zm0-2a.5.5 0 0 1 .5-.5h5a.5.5 0 0 1 0 1h-5a.5.5 0 0 1-.5-.5z"/>
+                                    <path d="M3 0h10a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2v-1h1v1a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1H3a1 1 0 0 0-1 1v1H1V2a2 2 0 0 1 2-2z"/>
+                                </svg>
+                                Notionに保存
+                            </button>
+                        </div>
                     </div>
-                    <div id="minutes" class="markdown-content mt-3" contenteditable="true"></div>
+                    <!-- 編集可能な議事録エリア -->
+                    <div id="minutes" class="markdown-content mt-3 p-3 border border-2 border-primary rounded" contenteditable="true" style="min-height: 300px; background-color: #f8f9fa;"></div>
+                    
+                    <!-- 空の議事録エリア用のメッセージ（議事録の外に配置） -->
+                    <div class="text-muted text-center mt-2" id="emptyMinutesMessage" style="display: none;">
+                        <i class="bi bi-pencil"></i> 議事録エリアをクリックして編集できます
+                    </div>
 
                     <div class="mt-4">
                         <h5>議事録を修正する</h5>
@@ -194,6 +305,37 @@
                         <label for="exportTitle" class="form-label">ドキュメントタイトル</label>
                         <input type="text" class="form-control" id="exportTitle" value="議事録">
                     </div>
+                    <div class="mb-3">
+                        <label for="exportFolderId" class="form-label">Google Drive フォルダ（オプション）</label>
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="exportFolderId" placeholder="フォルダIDを入力...">
+                            <button class="btn btn-outline-secondary" type="button" id="browseGoogleFoldersBtn">
+                                <i class="bi bi-folder2-open"></i> フォルダを参照
+                            </button>
+                        </div>
+                        <div id="selectedFolderName" class="text-primary mt-1 fw-bold" style="display: none;"></div>
+                        <div id="folderBrowser" style="display: none;">
+                            <div class="mt-2 mb-2">
+                                <div class="alert alert-info p-2" id="folderBrowserInfo">
+                                    <small><i class="bi bi-info-circle"></i> フォルダ一覧を取得中です...</small>
+                                </div>
+                            </div>
+                            <div id="folderList" class="border rounded p-2 mb-2" style="max-height: 300px; overflow-y: auto;">
+                                <!-- フォルダ一覧がここに表示されます -->
+                            </div>
+                            <div class="mt-2 text-end">
+                                <button id="closeFolderBrowserBtn" class="btn btn-sm btn-outline-secondary">閉じる</button>
+                                <button id="reloadFoldersBtn" class="btn btn-sm btn-primary">
+                                    <i class="bi bi-arrow-clockwise"></i> フォルダを再読み込み
+                                </button>
+                            </div>
+                        </div>
+                        <div class="form-text">
+                            保存先フォルダを指定できます。空白の場合はマイドライブのルートに保存されます。<br>
+                            <small>※「フォルダを参照」をクリックするとGoogleドライブのフォルダ一覧が表示されます</small><br>
+                            <small>※共有フォルダを指定する場合は、そのフォルダへの編集権限が必要です</small>
+                        </div>
+                    </div>
                     <div id="exportProcessing" class="d-none">
                         <div class="d-flex align-items-center">
                             <strong>エクスポート中...</strong>
@@ -214,7 +356,633 @@
         </div>
     </div>
 
+    <!-- Notionエクスポート確認モーダル -->
+    <div class="modal fade" id="notionModal" tabindex="-1" aria-labelledby="notionModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="notionModalLabel">Notionにエクスポート</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="notionTitle" class="form-label">ページタイトル</label>
+                        <input type="text" class="form-control" id="notionTitle" value="議事録">
+                    </div>
+                    <div class="mb-3">
+                        <label for="notionToken" class="form-label">Notion API Token</label>
+                        <input type="password" class="form-control" id="notionToken" placeholder="secret_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx">
+                        <div class="form-text">
+                            <a href="https://www.notion.so/my-integrations" target="_blank">Notion Integrationsから取得</a>
+                            （トークンは一時的に保存され、ブラウザを閉じると消去されます）
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="notionDatabaseId" class="form-label">データベースID</label>
+                        <input type="text" class="form-control" id="notionDatabaseId" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx">
+                        <div class="form-text">
+                            NotionデータベースのURLから取得できます。URLの以下の部分がデータベースIDです：<br>
+                            https://www.notion.so/xxxxx/<b>xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx</b>?v=...<br>
+                            または<br>
+                            https://www.notion.so/<b>xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx</b>?v=...<br>
+                            <small>※ハイフン(-)を含む32文字のIDをそのまま入力してください</small>
+                        </div>
+                    </div>
+                    <div id="notionProcessing" class="d-none">
+                        <div class="d-flex align-items-center">
+                            <strong>エクスポート中...</strong>
+                            <div class="spinner-border ms-3 spinner-border-sm" role="status"></div>
+                        </div>
+                    </div>
+                    <div id="notionSuccess" class="d-none alert alert-success">
+                        <p>ページが正常にエクスポートされました。</p>
+                        <p>ページURL: <a id="notionPageLink" href="#" target="_blank">ページを開く</a></p>
+                    </div>
+                    <div id="notionError" class="d-none alert alert-danger"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">キャンセル</button>
+                    <button type="button" class="btn btn-primary" id="confirmNotionBtn">エクスポート</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Google Drive Picker用の変数
+        let pickerApiLoaded = false;
+        let googlePickerOAuthToken = null;
+        let googlePickerClientId = null;
+        let googlePickerApiKey = null;
+        let googlePickerScope = null;
+
+        // Google Pickerは使用せず、カスタムフォルダブラウザを使用
+        function initGoogleFolderBrowser() {
+            addDebugLog('カスタムフォルダブラウザの初期化を開始...');
+            // Google Driveの認証情報などを取得するのは不要になりました
+            // カスタムブラウザはサーバーサイドでの認証を使用
+        }
+
+        // エクスポートボタン実装の後に追加
+        
+        // Google Driveのフォルダブラウザを実装
+        let contentId = null;  // 認証トークンIDを保持
+        
+        // フォルダ一覧を取得して表示する関数
+        async function fetchGoogleFolders() {
+            const folderBrowser = document.getElementById('folderBrowser');
+            const folderList = document.getElementById('folderList');
+            const folderBrowserInfo = document.getElementById('folderBrowserInfo');
+            
+            if (!folderBrowser || !folderList) {
+                console.error('フォルダブラウザ要素が見つかりません');
+                return;
+            }
+            
+            folderBrowser.style.display = 'block';
+            // ローディングプレースホルダーを表示
+            folderList.innerHTML = `
+                <div class="p-3">
+                    <div class="d-flex justify-content-center mb-3">
+                        <div class="spinner-border text-primary" role="status"></div>
+                    </div>
+                    <div class="folder-placeholder" style="width: 90%"></div>
+                    <div class="folder-placeholder" style="width: 85%"></div>
+                    <div class="folder-placeholder" style="width: 95%"></div>
+                    <div class="folder-placeholder" style="width: 80%"></div>
+                    <div class="folder-placeholder" style="width: 90%"></div>
+                    <div class="ms-4">
+                        <div class="folder-placeholder" style="width: 70%"></div>
+                        <div class="folder-placeholder" style="width: 75%"></div>
+                    </div>
+                </div>
+            `;
+            
+            if (folderBrowserInfo) {
+                folderBrowserInfo.innerHTML = '<small><i class="bi bi-info-circle"></i> フォルダ一覧を取得中です...</small>';
+            }
+            
+            // エクスポートボタンの状態管理
+            const exportToGoogleBtn = document.getElementById('confirmExportBtn');
+            
+            try {
+                // フォルダ一覧を取得
+                if (!contentId) {
+                    // contentIdが取得済みかどうか確認
+                    if (exportToGoogleBtn) {
+                        // 一時的にボタンを無効化
+                        exportToGoogleBtn.disabled = true;
+                        exportToGoogleBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> 認証中...';
+                    }
+                    
+                    addDebugLog('認証トークンIDがありません。認証が必要です。');
+                    
+                    // トークンを取得するためのミニフォームを表示
+                    folderList.innerHTML = `
+                        <div class="alert alert-info">
+                            <p><i class="bi bi-google me-2"></i>Googleドライブのフォルダ一覧を取得するには、まず認証が必要です。</p>
+                            <button id="authenticateGoogleDriveBtn" class="btn btn-primary btn-sm">
+                                <i class="bi bi-box-arrow-in-right me-1"></i> Googleアカウントで認証する
+                            </button>
+                        </div>
+                    `;
+                    
+                    // 認証ボタンのイベントリスナー
+                    const authBtn = document.getElementById('authenticateGoogleDriveBtn');
+                    if (authBtn) {
+                        authBtn.addEventListener('click', function() {
+                            // 認証のための空のリクエストを作成
+                            const dummyContent = encodeURIComponent('dummy');
+                            const dummyTitle = encodeURIComponent('dummy');
+                            const authUrl = `/oauth/google?title=${dummyTitle}&content=${dummyContent}&folders_only=true`;
+                            
+                            addDebugLog(`認証URLを開きます: ${authUrl}`);
+                            
+                            // 新しいウィンドウで認証URLを開く
+                            const authWindow = window.open(authUrl, '_blank', 'width=600,height=700');
+                            
+                            if (!authWindow) {
+                                addDebugLog('ポップアップがブロックされました。ブラウザの設定を確認してください。');
+                                folderList.innerHTML = `
+                                    <div class="alert alert-danger">
+                                        <p><i class="bi bi-exclamation-triangle-fill me-2"></i>ポップアップがブロックされました。</p>
+                                        <p>このサイトのポップアップを許可してから再度試してください。</p>
+                                        <button id="retryAuthBtn" class="btn btn-primary btn-sm">
+                                            <i class="bi bi-arrow-clockwise"></i> 再試行
+                                        </button>
+                                    </div>
+                                `;
+                                
+                                // 再試行ボタンのイベントリスナー
+                                const retryBtn = document.getElementById('retryAuthBtn');
+                                if (retryBtn) {
+                                    retryBtn.addEventListener('click', fetchGoogleFolders);
+                                }
+                                
+                                // エクスポートボタンを再度有効化
+                                if (exportToGoogleBtn) {
+                                    exportToGoogleBtn.disabled = false;
+                                    exportToGoogleBtn.innerHTML = 'エクスポート';
+                                }
+                                
+                                return;
+                            }
+                            
+                            // 状態を更新
+                            folderList.innerHTML = `
+                                <div class="alert alert-warning">
+                                    <p><i class="bi bi-info-circle-fill me-2"></i>新しいウィンドウで認証を完了してください。</p>
+                                    <p>認証完了後にこのページに戻り、「フォルダを再読み込み」ボタンをクリックしてください。</p>
+                                    <div class="text-center mt-3">
+                                        <button id="reloadFoldersBtnInAuth" class="btn btn-outline-primary btn-sm">
+                                            <i class="bi bi-arrow-clockwise"></i> フォルダを再読み込み
+                                        </button>
+                                    </div>
+                                </div>
+                            `;
+                            
+                            // 再読み込みボタンのイベントリスナー
+                            const reloadBtn = document.getElementById('reloadFoldersBtnInAuth');
+                            if (reloadBtn) {
+                                reloadBtn.addEventListener('click', fetchGoogleFolders);
+                            }
+                        });
+                    }
+                    
+                    // ローカルストレージから最後のトークンIDを取得
+                    contentId = localStorage.getItem('lastContentId');
+                    if (!contentId) {
+                        addDebugLog('ローカルストレージに保存されたトークンIDがありません。');
+                        // 認証ボタンを表示したのでここで終了
+                        if (exportToGoogleBtn) {
+                            exportToGoogleBtn.disabled = false;
+                            exportToGoogleBtn.innerHTML = 'エクスポート';
+                        }
+                        return;
+                    }
+                    
+                    addDebugLog(`ローカルストレージからトークンIDを復元しました: ${contentId}`);
+                }
+                
+                // APIを呼び出してフォルダ一覧を取得
+                addDebugLog(`フォルダ一覧を取得しています... (トークンID: ${contentId})`);
+                const response = await fetch(`/drive-folders/${contentId}`);
+                
+                if (!response.ok) {
+                    // 401エラーの場合はトークンが無効
+                    if (response.status === 401) {
+                        addDebugLog('認証トークンが無効です。再認証が必要です。');
+                        // トークンIDをクリア
+                        contentId = null;
+                        localStorage.removeItem('lastContentId');
+                        // 再帰的に呼び出して認証フォームを表示
+                        await fetchGoogleFolders();
+                        return;
+                    }
+                    
+                    const errorText = await response.text();
+                    addDebugLog(`APIエラー: ${response.status} ${response.statusText} - ${errorText}`);
+                    throw new Error(`API Error: ${response.status} ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.error) {
+                    addDebugLog(`APIからエラーレスポンス: ${data.error}`);
+                    throw new Error(data.error);
+                }
+                
+                // 成功メッセージを表示
+                if (folderBrowserInfo) {
+                    folderBrowserInfo.innerHTML = `<small><i class="bi bi-check-circle-fill text-success me-1"></i> フォルダ一覧を取得しました</small>`;
+                }
+                
+                // エクスポートボタンを有効化
+                if (exportToGoogleBtn) {
+                    exportToGoogleBtn.disabled = false;
+                    exportToGoogleBtn.innerHTML = 'エクスポート';
+                }
+                
+                addDebugLog(`フォルダ取得成功: ${data.folders?.length || 0} フォルダ`);
+                
+                // デバッグ情報としてフォルダデータの詳細を記録
+                addDebugLog(`フォルダ階層データ: ${JSON.stringify(data.hierarchy?.slice(0, 2) || [], null, 2)}`);
+                
+                // フォルダ一覧を表示
+                renderFolderHierarchy(data.hierarchy, folderList);
+                
+            } catch (error) {
+                addDebugLog(`フォルダ一覧取得エラー: ${error.message}`);
+                console.error('フォルダ一覧取得エラー:', error);
+                
+                // エラー表示
+                if (folderBrowserInfo) {
+                    folderBrowserInfo.innerHTML = `<small><i class="bi bi-exclamation-triangle-fill text-danger me-1"></i> フォルダ一覧の取得に失敗しました</small>`;
+                }
+                
+                folderList.innerHTML = `
+                    <div class="alert alert-danger">
+                        <p><i class="bi bi-exclamation-triangle-fill me-2"></i>${error.message || 'フォルダ一覧の取得中にエラーが発生しました'}</p>
+                        <div class="text-center mt-2">
+                            <button class="btn btn-outline-primary btn-sm" id="retryFoldersFetchBtn">
+                                <i class="bi bi-arrow-clockwise"></i> 再試行
+                            </button>
+                        </div>
+                    </div>
+                `;
+                
+                // 再試行ボタンのイベントリスナー
+                const retryBtn = document.getElementById('retryFoldersFetchBtn');
+                if (retryBtn) {
+                    retryBtn.addEventListener('click', fetchGoogleFolders);
+                }
+                
+                // エクスポートボタンを有効化
+                if (exportToGoogleBtn) {
+                    exportToGoogleBtn.disabled = false;
+                    exportToGoogleBtn.innerHTML = 'エクスポート';
+                }
+            }
+        }
+        
+        // フォルダ階層を再帰的に表示する関数
+        function renderFolderHierarchy(folderList, container, level = 0) {
+            if (!folderList || folderList.length === 0) {
+                if (level === 0) {
+                    container.innerHTML = '<div class="text-center text-muted py-3"><i class="bi bi-folder-x me-2"></i>フォルダが見つかりません</div>';
+                }
+                return;
+            }
+            
+            // コンテナをクリア
+            if (level === 0) {
+                container.innerHTML = '';
+            }
+            
+            // リストとして表示
+            const list = document.createElement('ul');
+            list.className = 'list-unstyled m-0';
+            if (level > 0) {
+                list.className += ' ms-3';
+                list.style.borderLeft = '1px solid #dee2e6';
+                list.style.paddingLeft = '10px';
+            }
+            
+            // フォルダがマイドライブか共有ドライブかでソート
+            const sortedFolders = [...folderList].sort((a, b) => {
+                // 共有ドライブを先に表示
+                if (a.type === 'shared_drive' && b.type !== 'shared_drive') return -1;
+                if (a.type !== 'shared_drive' && b.type === 'shared_drive') return 1;
+                // 名前で昇順ソート
+                return a.name.localeCompare(b.name);
+            });
+            
+            for (const folder of sortedFolders) {
+                const item = document.createElement('li');
+                item.className = 'mb-2';
+                
+                // 子フォルダの存在をチェック
+                const hasChildren = folder.children && folder.children.length > 0;
+                // デバッグ用に子フォルダの数を記録（最初の数個のフォルダのみ）
+                if (level === 0 && folderList.indexOf(folder) < 3) {
+                    addDebugLog(`フォルダ "${folder.name}" - 子フォルダ: ${hasChildren ? folder.children.length : '0'} 個`);
+                }
+                
+                // 折りたたみ可能なフォルダ構造を作成
+                const folderItem = document.createElement('div');
+                folderItem.className = 'd-flex align-items-center folder-item';
+                folderItem.setAttribute('tabindex', '0'); // キーボード操作可能に
+                
+                // 展開/折りたたみボタン（子フォルダがある場合のみ）
+                if (hasChildren) {
+                    const toggleBtn = document.createElement('button');
+                    toggleBtn.className = 'btn btn-sm btn-link text-decoration-none p-0 me-1 folder-toggle-btn';
+                    toggleBtn.style.width = '24px';
+                    toggleBtn.style.height = '24px';
+                    toggleBtn.style.display = 'flex';
+                    toggleBtn.style.alignItems = 'center';
+                    toggleBtn.style.justifyContent = 'center';
+                    toggleBtn.innerHTML = '<i class="bi bi-caret-right-fill"></i>';
+                    toggleBtn.setAttribute('aria-expanded', 'false');
+                    toggleBtn.title = 'クリックしてサブフォルダを表示';
+                    
+                    // 子フォルダコンテナのID
+                    const childrenId = `folder-children-${folder.id.replace(/[^a-zA-Z0-9]/g, '-')}`;
+                    
+                    // クリックで展開/折りたたみ
+                    toggleBtn.addEventListener('click', function() {
+                        const isExpanded = this.getAttribute('aria-expanded') === 'true';
+                        const childrenContainer = document.getElementById(childrenId);
+                        
+                        if (isExpanded) {
+                            // 折りたたむ
+                            this.innerHTML = '<i class="bi bi-caret-right-fill"></i>';
+                            this.setAttribute('aria-expanded', 'false');
+                            if (childrenContainer) {
+                                childrenContainer.style.display = 'none';
+                            }
+                        } else {
+                            // 展開する
+                            this.innerHTML = '<i class="bi bi-caret-down-fill"></i>';
+                            this.setAttribute('aria-expanded', 'true');
+                            if (childrenContainer) {
+                                childrenContainer.style.display = 'block';
+                            }
+                        }
+                        
+                        // 展開状態をローカルストレージに保存
+                        try {
+                            const expandedFolders = JSON.parse(localStorage.getItem('expandedFolders') || '[]');
+                            const folderId = folder.id;
+                            
+                            if (!isExpanded) {
+                                // 展開した場合は配列に追加
+                                if (!expandedFolders.includes(folderId)) {
+                                    expandedFolders.push(folderId);
+                                }
+                            } else {
+                                // 折りたたんだ場合は配列から削除
+                                const index = expandedFolders.indexOf(folderId);
+                                if (index > -1) {
+                                    expandedFolders.splice(index, 1);
+                                }
+                            }
+                            
+                            localStorage.setItem('expandedFolders', JSON.stringify(expandedFolders));
+                        } catch (e) {
+                            console.error('展開状態の保存中にエラー:', e);
+                        }
+                    });
+                    
+                    folderItem.appendChild(toggleBtn);
+                } else {
+                    // 子フォルダがない場合はスペースを追加して揃える
+                    const spacer = document.createElement('span');
+                    spacer.style.width = '20px';
+                    spacer.className = 'd-inline-block me-1';
+                    folderItem.appendChild(spacer);
+                }
+                
+                // フォルダアイコンとリンク
+                const folderButton = document.createElement('button');
+                folderButton.className = 'btn btn-sm btn-link text-decoration-none p-0 text-start';
+                folderButton.style.flex = '1';
+                folderButton.style.overflow = 'hidden';
+                folderButton.style.textOverflow = 'ellipsis';
+                
+                // フォルダタイプに応じたアイコンとスタイル
+                const iconClass = folder.type === 'shared_drive' ? 'bi-hdd-rack text-success' : 'bi-folder text-primary';
+                const folderName = folder.type === 'shared_drive' ? 
+                    folder.name.replace(/^共有ドライブ: /, '') : folder.name;
+                
+                folderButton.innerHTML = `
+                    <i class="bi ${iconClass} me-1"></i>
+                    <span class="folder-name">${folder.type === 'shared_drive' ? '<span class="badge bg-success me-1">共有</span>' : ''}${folderName}</span>
+                `;
+                
+                // クリックでフォルダを選択
+                folderButton.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    
+                    // 全てのフォルダアイテムから選択状態を削除
+                    document.querySelectorAll('.folder-item').forEach(item => {
+                        item.classList.remove('selected');
+                    });
+                    
+                    // このフォルダアイテムを選択状態に
+                    folderItem.classList.add('selected');
+                    
+                    selectFolder(folder.id, folderName, folder.type === 'shared_drive');
+                });
+                
+                // ダブルクリックで展開と選択を同時に行う
+                folderItem.addEventListener('dblclick', function(e) {
+                    e.preventDefault();
+                    
+                    // 子フォルダがある場合は展開/折りたたみトグル
+                    if (hasChildren) {
+                        const toggleBtn = this.querySelector('.folder-toggle-btn');
+                        if (toggleBtn) {
+                            toggleBtn.click(); // 展開/折りたたみボタンをクリック
+                        }
+                    }
+                    
+                    // フォルダを選択
+                    selectFolder(folder.id, folderName, folder.type === 'shared_drive');
+                });
+                
+                // キーボードサポート
+                folderItem.addEventListener('keydown', function(e) {
+                    // Enterキーでフォルダを選択
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        selectFolder(folder.id, folderName, folder.type === 'shared_drive');
+                    }
+                    // スペースキーで展開/折りたたみ
+                    else if (e.key === ' ' && hasChildren) {
+                        e.preventDefault();
+                        const toggleBtn = this.querySelector('.folder-toggle-btn');
+                        if (toggleBtn) {
+                            toggleBtn.click();
+                        }
+                    }
+                });
+                
+                folderItem.appendChild(folderButton);
+                item.appendChild(folderItem);
+                
+                // 子フォルダがある場合は、子フォルダコンテナを作成
+                if (hasChildren) {
+                    const childrenContainer = document.createElement('div');
+                    childrenContainer.id = `folder-children-${folder.id.replace(/[^a-zA-Z0-9]/g, '-')}`;
+                    childrenContainer.className = 'mt-1';
+                    
+                    // 前回展開していたフォルダを復元
+                    let shouldExpand = false;
+                    try {
+                        const expandedFolders = JSON.parse(localStorage.getItem('expandedFolders') || '[]');
+                        shouldExpand = expandedFolders.includes(folder.id);
+                    } catch (e) {
+                        console.error('展開状態の読み込み中にエラー:', e);
+                    }
+                    
+                    // 展開状態の復元
+                    if (shouldExpand) {
+                        childrenContainer.style.display = 'block';
+                        const toggleBtn = folderItem.querySelector('.folder-toggle-btn');
+                        if (toggleBtn) {
+                            toggleBtn.innerHTML = '<i class="bi bi-caret-down-fill"></i>';
+                            toggleBtn.setAttribute('aria-expanded', 'true');
+                        }
+                    } else {
+                        childrenContainer.style.display = 'none';
+                    }
+                    
+                    // 再帰的に子フォルダを描画
+                    renderFolderHierarchy(folder.children, childrenContainer, level + 1);
+                    
+                    item.appendChild(childrenContainer);
+                }
+                
+                list.appendChild(item);
+            }
+            
+            container.appendChild(list);
+            
+            // ルートレベルの場合は追加情報を表示
+            if (level === 0) {
+                const infoText = document.createElement('div');
+                infoText.className = 'text-muted small mt-2';
+                infoText.innerHTML = `
+                    <i class="bi bi-info-circle me-1"></i>
+                    フォルダをクリックして選択してください。サブフォルダがある場合は、フォルダ名の前の <i class="bi bi-caret-right-fill"></i> アイコンをクリックすると、サブフォルダが表示されます。
+                `;
+                container.appendChild(infoText);
+            }
+        }
+        
+        // フォルダを選択する関数
+        function selectFolder(folderId, folderName, isSharedDrive = false) {
+            const folderIdInput = document.getElementById('exportFolderId');
+            const folderNameDiv = document.getElementById('selectedFolderName');
+            
+            if (folderIdInput && folderNameDiv) {
+                folderIdInput.value = folderId;
+                
+                // 共有ドライブの場合はバッジを表示
+                if (isSharedDrive) {
+                    folderNameDiv.innerHTML = `選択したフォルダ: <span class="badge bg-success me-1">共有</span>${folderName}`;
+                } else {
+                    folderNameDiv.innerHTML = `選択したフォルダ: <i class="bi bi-folder-fill text-primary me-1"></i>${folderName}`;
+                }
+                
+                folderNameDiv.style.display = 'block';
+                
+                // フォルダブラウザを閉じる
+                const folderBrowser = document.getElementById('folderBrowser');
+                if (folderBrowser) {
+                    folderBrowser.style.display = 'none';
+                }
+                
+                // フォルダブラウザの情報表示を更新
+                const folderBrowserInfo = document.getElementById('folderBrowserInfo');
+                if (folderBrowserInfo) {
+                    folderBrowserInfo.innerHTML = `<small><i class="bi bi-check-circle-fill text-success me-1"></i> フォルダを選択しました</small>`;
+                }
+                
+                // 選択したフォルダをローカルストレージに保存
+                try {
+                    localStorage.setItem('googleDriveFolderId', folderId);
+                    localStorage.setItem('googleDriveFolderName', folderName);
+                    localStorage.setItem('googleDriveFolderIsShared', isSharedDrive ? 'true' : 'false');
+                    addDebugLog(`フォルダ "${folderName}" (${folderId}) を選択しました${isSharedDrive ? ' [共有ドライブ]' : ''}`);
+                } catch (error) {
+                    addDebugLog(`フォルダ保存エラー: ${error.message}`);
+                }
+                
+                // 選択アニメーション
+                folderNameDiv.classList.add('animate__animated', 'animate__pulse');
+                setTimeout(() => {
+                    folderNameDiv.classList.remove('animate__animated', 'animate__pulse');
+                }, 1000);
+            }
+        }
+        
+        // イベントハンドラの追加
+        document.addEventListener('DOMContentLoaded', function() {
+            // フォルダブラウザボタンのイベントリスナー
+            const browseGoogleFoldersBtn = document.getElementById('browseGoogleFoldersBtn');
+            if (browseGoogleFoldersBtn) {
+                browseGoogleFoldersBtn.addEventListener('click', function() {
+                    fetchGoogleFolders();
+                });
+            }
+            
+            // フォルダブラウザを閉じるボタンのイベントリスナー
+            const closeFolderBrowserBtn = document.getElementById('closeFolderBrowserBtn');
+            if (closeFolderBrowserBtn) {
+                closeFolderBrowserBtn.addEventListener('click', function() {
+                    const folderBrowser = document.getElementById('folderBrowser');
+                    if (folderBrowser) {
+                        folderBrowser.style.display = 'none';
+                    }
+                });
+            }
+            
+            // 再読み込みボタンのイベントリスナー
+            const reloadFoldersBtn = document.getElementById('reloadFoldersBtn');
+            if (reloadFoldersBtn) {
+                reloadFoldersBtn.addEventListener('click', fetchGoogleFolders);
+            }
+            
+            // 保存されたフォルダ名があれば表示
+            const savedFolderId = localStorage.getItem('googleDriveFolderId');
+            const savedFolderName = localStorage.getItem('googleDriveFolderName');
+            const isSharedDrive = localStorage.getItem('googleDriveFolderIsShared') === 'true';
+            
+            if (savedFolderId && savedFolderName) {
+                const folderIdInput = document.getElementById('exportFolderId');
+                const folderNameDiv = document.getElementById('selectedFolderName');
+                
+                if (folderIdInput && folderNameDiv) {
+                    folderIdInput.value = savedFolderId;
+                    
+                    // 共有ドライブの場合はバッジを表示
+                    if (isSharedDrive) {
+                        folderNameDiv.innerHTML = `選択したフォルダ: <span class="badge bg-success me-1">共有</span>${savedFolderName}`;
+                    } else {
+                        folderNameDiv.innerHTML = `選択したフォルダ: <i class="bi bi-folder-fill text-primary me-1"></i>${savedFolderName}`;
+                    }
+                    
+                    folderNameDiv.style.display = 'block';
+                }
+            }
+            
+            // デバッグ情報
+            addDebugLog('DOM読み込み完了 - フォルダブラウザの初期化完了');
+        });
+    </script>
     <script>
         // 議事録のバージョン履歴を管理する配列
         let minutesHistory = [];
@@ -223,6 +991,13 @@
 
         // ページ読み込み時にローカルストレージからデータを復元
         document.addEventListener('DOMContentLoaded', function() {
+            // 初期状態では空エリアメッセージを表示
+            const minutesElement = document.getElementById('minutes');
+            const emptyMessage = document.getElementById('emptyMinutesMessage');
+            if (minutesElement && !minutesElement.textContent.trim() && emptyMessage) {
+                emptyMessage.style.display = 'block';
+            }
+            
             // リダイレクト後のセッション維持をチェック
             try {
                 const savedMinutes = localStorage.getItem('lastMinutes');
@@ -237,6 +1012,12 @@
                     minutes.innerHTML = savedMinutes;
                     if (savedRawText) {
                         rawText.textContent = savedRawText;
+                    }
+                    
+                    // 内容があるので空エリアメッセージを非表示
+                    const emptyMessage = document.getElementById('emptyMinutesMessage');
+                    if (emptyMessage) {
+                        emptyMessage.style.display = 'none';
                     }
                     
                     // 結果表示エリアを表示
@@ -260,41 +1041,83 @@
         document.getElementById('uploadForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             
+            // すべての参照要素を事前に取得し、nullチェックを行う
             const fileInput = document.getElementById('audioFile');
+            if (!fileInput) {
+                console.error('audioFile要素が見つかりません');
+                alert('エラー: フォーム要素が見つかりません');
+                return;
+            }
+            
+            if (!fileInput.files || !fileInput.files[0]) {
+                alert('ファイルを選択してください');
+                return;
+            }
+            
+            // 他の必要な要素を取得
             const loading = document.getElementById('loading');
             const resultContainer = document.getElementById('resultContainer');
             const rawText = document.getElementById('rawText');
             const minutes = document.getElementById('minutes');
+            const emptyMessage = document.getElementById('emptyMinutesMessage');
+            const meetingSummaryEl = document.getElementById('meetingSummary');
+            const keyTermsEl = document.getElementById('keyTerms');
+            const transcriptionModelEl = document.getElementById('transcriptionModel');
             
-            if (!fileInput.files[0]) {
-                alert('ファイルを選択してください');
+            if (!loading || !resultContainer || !minutes) {
+                console.error('必要な要素が見つかりません', { loading, resultContainer, minutes });
+                alert('エラー: 必要なUI要素が見つかりません');
                 return;
             }
-
+            
+            // フォームデータを作成
             const formData = new FormData();
             formData.append('file', fileInput.files[0]);
-            formData.append('meeting_summary', document.getElementById('meetingSummary').value);
-            formData.append('key_terms', document.getElementById('keyTerms').value);
+            
+            // オプションフィールドの追加
+            if (meetingSummaryEl) formData.append('meeting_summary', meetingSummaryEl.value || '');
+            if (keyTermsEl) formData.append('key_terms', keyTermsEl.value || '');
+            if (transcriptionModelEl) {
+                formData.append('model', transcriptionModelEl.value || 'whisper-1');
+                // 選択したモデルをデバッグ表示
+                addDebugLog(`選択した文字起こしモデル: ${transcriptionModelEl.value || 'whisper-1'}`);
+            } else {
+                formData.append('model', 'whisper-1');
+                addDebugLog('デフォルトモデル: whisper-1');
+            }
 
+            // UIを更新
             loading.classList.add('active');
             resultContainer.style.display = 'none';
-            rawText.innerHTML = '';
-            minutes.innerHTML = '';
+            if (rawText) rawText.innerHTML = '';
+            if (minutes) minutes.innerHTML = '';
+            
+            // 空の議事録エリアの場合はメッセージを表示
+            if (emptyMessage) {
+                emptyMessage.style.display = 'block';
+            }
             
             // プログレスバーとステップ表示をリセット
             resetProgress();
             
             // 初期ステップを表示
             const progressBar = document.getElementById('progressBar');
-            progressBar.style.width = '5%';
-            progressBar.setAttribute('aria-valuenow', 5);
-            document.getElementById('step1').classList.add('active');
+            const step1 = document.getElementById('step1');
             
-            // 処理中メッセージを表示
-            const progressMessage = document.createElement('div');
-            progressMessage.className = 'text-muted small mt-1';
-            progressMessage.textContent = '音声ファイルをアップロード中...';
-            progressBar.parentElement.appendChild(progressMessage);
+            if (progressBar) {
+                progressBar.style.width = '5%';
+                progressBar.setAttribute('aria-valuenow', 5);
+                
+                // 処理中メッセージを表示
+                const progressMessage = document.createElement('div');
+                progressMessage.className = 'text-muted small mt-1';
+                progressMessage.textContent = '音声ファイルをアップロード中...';
+                progressBar.parentElement.appendChild(progressMessage);
+            }
+            
+            if (step1) {
+                step1.classList.add('active');
+            }
             
             // 履歴をリセット
             minutesHistory = [];
@@ -308,27 +1131,91 @@
                     progressPoller = null;
                 }
                 
+                // デバッグ情報
+                addDebugLog('アップロード試行中...');
+                const fileSize = fileInput.files[0].size;
+                addDebugLog(`ファイルサイズ: ${(fileSize / 1024).toFixed(2)} KB`);
+                
+                let response;
                 // ファイルをアップロードしてタスクIDを取得
-                const response = await fetch('/transcribe/', {
-                    method: 'POST',
-                    body: formData
-                });
-
-                if (!response.ok) {
-                    throw new Error('エラーが発生しました');
+                try {
+                    addDebugLog('APIリクエスト送信中...');
+                    response = await fetch('/transcribe/', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    addDebugLog(`サーバーレスポンス: ${response.status} ${response.statusText}`);
+                    
+                    // レスポンスの詳細を取得（エラーの場合）
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        console.error('サーバーエラー詳細:', errorText);
+                        addDebugLog(`エラー詳細: ${errorText}`);
+                        throw new Error(`エラーが発生しました: ${response.status} ${response.statusText}`);
+                    }
+                } catch (fetchError) {
+                    console.error('Fetch中のエラー:', fetchError);
+                    addDebugLog(`Fetchエラー: ${fetchError.message}`);
+                    if (loading) loading.classList.remove('active');
+                    throw fetchError;
                 }
 
-                const data = await response.json();
+                // JSON解析のエラーをキャッチ
+                if (!response) {
+                    const noResponseError = new Error('サーバーからの応答がありません');
+                    console.error(noResponseError);
+                    addDebugLog('サーバーからの応答がありません');
+                    if (loading) loading.classList.remove('active');
+                    throw noResponseError;
+                }
+                
+                let data;
+                try {
+                    addDebugLog('レスポンスをJSONとして解析中...');
+                    data = await response.json();
+                    addDebugLog(`JSONデータ受信: ${JSON.stringify(data)}`);
+                } catch (jsonError) {
+                    console.error('JSON解析エラー:', jsonError);
+                    addDebugLog(`JSON解析エラー: ${jsonError.message}`);
+                    // レスポンスの生テキストを取得
+                    try {
+                        const rawResponse = await response.text();
+                        addDebugLog(`生レスポンス: ${rawResponse}`);
+                    } catch (e) {
+                        addDebugLog('レスポンステキストの取得に失敗しました');
+                    }
+                    if (loading) loading.classList.remove('active');
+                    throw new Error('サーバーからの応答を解析できませんでした');
+                }
+                
+                if (!data) {
+                    const noDataError = new Error('データが取得できませんでした');
+                    console.error(noDataError);
+                    addDebugLog('データが取得できませんでした');
+                    if (loading) loading.classList.remove('active');
+                    throw noDataError;
+                }
+                
                 const taskId = data.task_id;
                 
                 if (!taskId) {
-                    throw new Error('タスクIDが取得できませんでした');
+                    const noTaskIdError = new Error('タスクIDが取得できませんでした');
+                    console.error(noTaskIdError);
+                    addDebugLog('タスクIDが取得できませんでした');
+                    if (loading) loading.classList.remove('active');
+                    throw noTaskIdError;
                 }
                 
                 addDebugLog(`タスクID取得: ${taskId}`);
                 
                 // 定期的にタスク状態を取得
-                startProgressPolling(taskId, rawText, minutes, loading, resultContainer);
+                if (rawText && minutes && loading && resultContainer) {
+                    startProgressPolling(taskId, rawText, minutes, loading, resultContainer);
+                } else {
+                    addDebugLog('必要な要素が見つからないため、進捗ポーリングを開始できません');
+                    if (loading) loading.classList.remove('active');
+                }
                 
             } catch (error) {
                 alert('エラーが発生しました: ' + error.message);
@@ -339,11 +1226,23 @@
         
         // 進捗状況のポーリングを開始する関数
         function startProgressPolling(taskId, rawTextElement, minutesElement, loadingElement, resultContainer) {
+            // パラメータの検証
+            if (!taskId || !rawTextElement || !minutesElement || !loadingElement || !resultContainer) {
+                console.error('ポーリングに必要なパラメータが不足しています', {
+                    taskId, rawTextElement, minutesElement, loadingElement, resultContainer
+                });
+                addDebugLog('ポーリングパラメータエラー: 必要な要素が不足しています');
+                if (loadingElement) loadingElement.classList.remove('active');
+                return;
+            }
+            
             // ポーリング間隔（ミリ秒）
             const POLLING_INTERVAL = 500;
             
             // 前回の進捗状態
             let previousProgress = 0;
+            
+            addDebugLog(`タスク ${taskId} の進捗ポーリングを開始します`);
             
             // ポーリング開始
             progressPoller = setInterval(async () => {
@@ -362,8 +1261,19 @@
                         throw new Error(`サーバーエラー: ${response.status}`);
                     }
                     
-                    const data = await response.json();
-                    console.log('Progress update:', data);
+                    let data;
+                    try {
+                        data = await response.json();
+                        console.log('Progress update:', data);
+                    } catch (jsonError) {
+                        addDebugLog(`進捗データの解析エラー: ${jsonError.message}`);
+                        throw new Error('進捗データを解析できませんでした');
+                    }
+                    
+                    if (!data) {
+                        addDebugLog('進捗データが空です');
+                        throw new Error('進捗データが空です');
+                    }
                     
                     // 進捗情報に変更があった場合のみログに追加
                     if (data.progress !== previousProgress) {
@@ -376,12 +1286,24 @@
                     
                     // 処理が完了していて結果がある場合は表示
                     if (data.completed && data.result) {
-                        rawTextElement.textContent = data.result.raw_text;
-                        const formattedMinutes = markdownToHtml(data.result.minutes);
-                        minutesElement.innerHTML = formattedMinutes;
+                        // 議事録が表示されたのでメッセージを非表示
+                        const emptyMessage = document.getElementById('emptyMinutesMessage');
+                        if (emptyMessage) {
+                            emptyMessage.style.display = 'none';
+                        }
                         
-                        // 初期バージョンを履歴に追加
-                        addToHistory(formattedMinutes);
+                        // 結果を表示
+                        if (data.result.raw_text) {
+                            rawTextElement.textContent = data.result.raw_text;
+                        }
+                        
+                        if (data.result.minutes) {
+                            const formattedMinutes = markdownToHtml(data.result.minutes);
+                            minutesElement.innerHTML = formattedMinutes;
+                            
+                            // 初期バージョンを履歴に追加
+                            addToHistory(formattedMinutes);
+                        }
                         
                         // 結果表示エリアを表示
                         resultContainer.style.display = 'block';
@@ -400,8 +1322,8 @@
                     
                     // エラーが発生した場合
                     if (data.error) {
-                        addDebugLog(`エラー: ${data.message}`);
-                        alert(`処理中にエラーが発生しました: ${data.message}`);
+                        addDebugLog(`エラー: ${data.message || 'エラーが発生しました'}`);
+                        alert(`処理中にエラーが発生しました: ${data.message || 'エラーが発生しました'}`);
                         
                         // ポーリングを停止
                         clearInterval(progressPoller);
@@ -427,30 +1349,50 @@
 
         // プログレスバーとステップ表示をリセットする関数
         function resetProgress() {
+            // プログレスバーのリセット
             const progressBar = document.getElementById('progressBar');
-            progressBar.style.width = '0%';
-            progressBar.setAttribute('aria-valuenow', 0);
+            if (progressBar) {
+                progressBar.style.width = '0%';
+                progressBar.setAttribute('aria-valuenow', 0);
+                
+                // 既存のメッセージを削除
+                const existingMessage = progressBar.parentElement ? progressBar.parentElement.querySelector('.text-muted') : null;
+                if (existingMessage) {
+                    existingMessage.remove();
+                }
+            }
             
+            // ステップ表示のリセット
             const steps = document.querySelectorAll('.step');
             steps.forEach(step => {
                 step.classList.remove('active', 'completed');
                 const indicator = step.querySelector('.step-indicator');
-                indicator.textContent = '◯';
+                if (indicator) {
+                    indicator.textContent = '◯';
+                }
             });
             
-            // 最初のステップをアクティブにする
-            document.getElementById('step1').classList.add('active');
+            // 最初のステップをアクティブに（存在する場合）
+            const step1 = document.getElementById('step1');
+            if (step1) {
+                step1.classList.add('active');
+            }
             
             // デバッグログをリセット
-            document.getElementById('debugLog').innerHTML = '';
+            const debugLog = document.getElementById('debugLog');
+            if (debugLog) {
+                debugLog.innerHTML = '';
+            }
         }
         
         // デバッグ情報をログに追加する関数
         function addDebugLog(message) {
-            const showDebug = document.getElementById('showDebugInfo').checked;
-            if (!showDebug) return;
+            const showDebugCheckbox = document.getElementById('showDebugInfo');
+            if (!showDebugCheckbox || !showDebugCheckbox.checked) return;
             
             const debugLog = document.getElementById('debugLog');
+            if (!debugLog) return;
+            
             const logEntry = document.createElement('div');
             logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
             debugLog.appendChild(logEntry);
@@ -459,7 +1401,10 @@
             debugLog.scrollTop = debugLog.scrollHeight;
             
             // デバッグ情報を表示
-            document.getElementById('debugInfo').style.display = 'block';
+            const debugInfo = document.getElementById('debugInfo');
+            if (debugInfo) {
+                debugInfo.style.display = 'block';
+            }
         }
         
         // デバッグチェックボックスの変更イベント
@@ -561,103 +1506,220 @@
         // バージョン情報を更新する関数
         function updateVersionInfo() {
             const versionInfo = document.getElementById('versionInfo');
+            if (!versionInfo) {
+                console.error('バージョン情報要素が見つかりません');
+                return;
+            }
+            
             if (minutesHistory.length > 0) {
                 versionInfo.textContent = `バージョン: ${currentVersionIndex + 1}/${minutesHistory.length}`;
             } else {
                 versionInfo.textContent = 'バージョン: 0/0';
             }
+            
+            // UNDOボタンの状態も更新
+            const undoButton = document.getElementById('undoButton');
+            if (undoButton) {
+                undoButton.disabled = currentVersionIndex <= 0;
+            }
         }
         
-        // 議事録の直接編集を検知してバージョン履歴に追加
-        document.getElementById('minutes').addEventListener('blur', function() {
-            // 内容が変更された場合のみ履歴に追加
-            if (currentVersionIndex >= 0 && this.innerHTML !== minutesHistory[currentVersionIndex]) {
-                addToHistory(this.innerHTML);
-            }
-        });
+        // 議事録エリアの参照取得
+        const minutesElement = document.getElementById('minutes');
+        if (minutesElement) {
+            // 議事録エリアへのフォーカス時の処理
+            minutesElement.addEventListener('focus', function() {
+                // フォーカス時に視覚的なフィードバックを強化
+                this.style.backgroundColor = '#ffffff';
+                this.style.boxShadow = '0 0 0 0.25rem rgba(13, 110, 253, 0.25)';
+                
+                // メッセージを非表示
+                const emptyMessage = document.getElementById('emptyMinutesMessage');
+                if (emptyMessage) {
+                    emptyMessage.style.display = 'none';
+                }
+            });
+            
+            // 議事録の直接編集を検知してバージョン履歴に追加
+            minutesElement.addEventListener('blur', function() {
+                // フォーカスが外れたら元のスタイルに戻す
+                this.style.backgroundColor = '#f8f9fa';
+                this.style.boxShadow = 'none';
+                
+                // 空の場合はメッセージを表示
+                const emptyMessage = document.getElementById('emptyMinutesMessage');
+                if (emptyMessage) {
+                    if (!this.textContent.trim()) {
+                        emptyMessage.style.display = 'block';
+                    } else {
+                        emptyMessage.style.display = 'none';
+                    }
+                }
+                
+                // 内容が変更された場合のみ履歴に追加
+                if (currentVersionIndex >= 0 && minutesHistory[currentVersionIndex] && this.innerHTML !== minutesHistory[currentVersionIndex]) {
+                    addToHistory(this.innerHTML);
+                }
+            });
+        } else {
+            console.error('議事録エリア(#minutes)が見つかりません');
+        }
         
         // UNDOボタンのイベントリスナー
-        document.getElementById('undoButton').addEventListener('click', function() {
-            if (currentVersionIndex > 0) {
-                currentVersionIndex--;
-                document.getElementById('minutes').innerHTML = minutesHistory[currentVersionIndex];
-                
-                // UNDOボタンの状態を更新
-                this.disabled = currentVersionIndex <= 0;
-                
-                // バージョン情報を更新
-                updateVersionInfo();
-            }
-        });
+        const undoButton = document.getElementById('undoButton');
+        if (undoButton) {
+            undoButton.addEventListener('click', function() {
+                if (currentVersionIndex > 0) {
+                    currentVersionIndex--;
+                    const minutesElement = document.getElementById('minutes');
+                    if (minutesElement && minutesHistory[currentVersionIndex]) {
+                        minutesElement.innerHTML = minutesHistory[currentVersionIndex];
+                        
+                        // 空の場合はメッセージを表示、そうでなければ非表示
+                        const emptyMessage = document.getElementById('emptyMinutesMessage');
+                        if (emptyMessage) {
+                            emptyMessage.style.display = !minutesElement.textContent.trim() ? 'block' : 'none';
+                        }
+                    }
+                    
+                    // UNDOボタンの状態を更新
+                    this.disabled = currentVersionIndex <= 0;
+                    
+                    // バージョン情報を更新
+                    updateVersionInfo();
+                }
+            });
+        } else {
+            console.error('UNDOボタンが見つかりません');
+        }
         
         // 修正適用ボタンのイベントリスナー
-        document.getElementById('applyEditBtn').addEventListener('click', async function() {
-            const editPrompt = document.getElementById('editPrompt').value.trim();
-            if (!editPrompt) {
-                alert('修正指示を入力してください');
-                return;
-            }
-            
-            const minutes = document.getElementById('minutes');
-            const currentMinutes = minutes.innerHTML;
-            const editLoading = document.getElementById('editLoading');
-            
-            // ローディング表示
-            editLoading.classList.add('active');
-            
-            try {
-                const response = await fetch('/edit-minutes/', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        minutes: minutes.innerHTML,
-                        prompt: editPrompt
-                    })
-                });
-                
-                if (!response.ok) {
-                    throw new Error('エラーが発生しました');
+        const applyEditBtn = document.getElementById('applyEditBtn');
+        if (applyEditBtn) {
+            applyEditBtn.addEventListener('click', async function() {
+                const editPromptElement = document.getElementById('editPrompt');
+                if (!editPromptElement) {
+                    console.error('修正指示入力欄が見つかりません');
+                    alert('エラー: 修正指示入力欄が見つかりません');
+                    return;
                 }
                 
-                const data = await response.json();
-                minutes.innerHTML = data.edited_minutes;
+                const editPrompt = editPromptElement.value.trim();
+                if (!editPrompt) {
+                    alert('修正指示を入力してください');
+                    return;
+                }
                 
-                // 新しいバージョンを履歴に追加
-                addToHistory(data.edited_minutes);
+                const minutes = document.getElementById('minutes');
+                if (!minutes) {
+                    console.error('議事録エリアが見つかりません');
+                    alert('エラー: 議事録エリアが見つかりません');
+                    return;
+                }
                 
-                // 入力欄をクリア
-                document.getElementById('editPrompt').value = '';
-            } catch (error) {
-                alert('修正中にエラーが発生しました: ' + error.message);
-                console.error(error);
-            } finally {
-                // ローディング表示を非表示
-                editLoading.classList.remove('active');
-            }
-        });
+                const editLoading = document.getElementById('editLoading');
+                if (!editLoading) {
+                    console.error('ローディング表示要素が見つかりません');
+                }
+                
+                // ローディング表示（存在する場合のみ）
+                if (editLoading) {
+                    editLoading.classList.add('active');
+                }
+                
+                try {
+                    addDebugLog('議事録修正APIを呼び出し中...');
+                    const response = await fetch('/edit-minutes/', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            minutes: minutes.innerHTML,
+                            prompt: editPrompt
+                        })
+                    });
+                    
+                    // レスポンスチェック
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        addDebugLog(`API応答エラー: ${response.status} ${response.statusText}`);
+                        addDebugLog(`エラー詳細: ${errorText}`);
+                        throw new Error(`エラー: ${response.status} ${response.statusText}`);
+                    }
+                    
+                    // JSON応答の解析
+                    let data;
+                    try {
+                        data = await response.json();
+                        addDebugLog('修正結果を受信しました');
+                    } catch (jsonError) {
+                        addDebugLog(`JSON解析エラー: ${jsonError.message}`);
+                        throw new Error('応答を解析できませんでした');
+                    }
+                    
+                    if (data && data.edited_minutes) {
+                        minutes.innerHTML = data.edited_minutes;
+                        
+                        // 空要素チェック
+                        const emptyMessage = document.getElementById('emptyMinutesMessage');
+                        if (emptyMessage) {
+                            emptyMessage.style.display = !minutes.textContent.trim() ? 'block' : 'none';
+                        }
+                        
+                        // 新しいバージョンを履歴に追加
+                        addToHistory(data.edited_minutes);
+                        
+                        // 入力欄をクリア
+                        editPromptElement.value = '';
+                        addDebugLog('議事録が正常に更新されました');
+                    } else {
+                        addDebugLog('修正結果にデータがありません');
+                        throw new Error('修正結果が取得できませんでした');
+                    }
+                } catch (error) {
+                    addDebugLog(`修正適用エラー: ${error.message}`);
+                    alert('修正中にエラーが発生しました: ' + error.message);
+                    console.error(error);
+                } finally {
+                    // ローディング表示を非表示（存在する場合のみ）
+                    if (editLoading) {
+                        editLoading.classList.remove('active');
+                    }
+                }
+            });
+        } else {
+            console.error('修正適用ボタンが見つかりません');
+        }
 
         // Google Driveにエクスポートするボタンのイベントリスナー
-        document.getElementById('exportToDriveBtn').addEventListener('click', async function() {
-            const minutes = document.getElementById('minutes');
-            
-            if (!minutes.innerHTML.trim()) {
-                alert('エクスポートする議事録がありません');
-                return;
-            }
-            
-            try {
-                // 現在の議事録データとテキストをローカルストレージに保存
-                localStorage.setItem('lastMinutes', minutes.innerHTML);
-                const rawText = document.getElementById('rawText');
-                if (rawText.textContent) {
-                    localStorage.setItem('lastRawText', rawText.textContent);
+        const exportToDriveBtn = document.getElementById('exportToDriveBtn');
+        if (exportToDriveBtn) {
+            exportToDriveBtn.addEventListener('click', function() {
+                const minutes = document.getElementById('minutes');
+                if (!minutes) {
+                    console.error('議事録エリアが見つかりません');
+                    alert('エラー: 議事録エリアが見つかりません');
+                    return;
                 }
                 
-                // デバッグ情報の追加
-                addDebugLog('議事録データをローカルストレージに保存しました');
-
+                if (!minutes.innerHTML.trim()) {
+                    alert('エクスポートする議事録がありません');
+                    return;
+                }
+                
+                // 現在の議事録データとテキストをローカルストレージに保存
+                try {
+                    localStorage.setItem('lastMinutes', minutes.innerHTML);
+                    const rawText = document.getElementById('rawText');
+                    if (rawText && rawText.textContent) {
+                        localStorage.setItem('lastRawText', rawText.textContent);
+                    }
+                    addDebugLog('議事録データをローカルストレージに保存しました');
+                } catch (error) {
+                    addDebugLog(`ローカルストレージ保存エラー: ${error.message}`);
+                }
+                
                 // 議事録のタイトルを取得（h1タグの内容）
                 let title = '議事録';
                 const h1Match = minutes.innerHTML.match(/<h1>(.*?)<\/h1>/);
@@ -670,23 +1732,342 @@
                 const dateStr = now.toISOString().split('T')[0];
                 title = `${title}_${dateStr}`;
                 
-                // コンテンツをURLエンコード
-                const encodedContent = encodeURIComponent(minutes.innerHTML);
-                const encodedTitle = encodeURIComponent(title);
+                // ローカルストレージから以前のフォルダIDを取得
+                const savedFolderId = localStorage.getItem('googleDriveFolderId');
                 
-                // 認証URL構築（contentをエンコードして渡す）
-                const fullAuthUrl = `/oauth/google?title=${encodedTitle}&content=${encodedContent}`;
+                // タイトルをエクスポートモーダルに設定
+                const exportTitleElement = document.getElementById('exportTitle');
+                if (exportTitleElement) {
+                    exportTitleElement.value = title;
+                }
                 
-                // デバッグ情報
-                addDebugLog(`Google Driveへエクスポート開始: ${title}`);
+                // 以前のフォルダIDがあれば設定
+                const exportFolderIdElement = document.getElementById('exportFolderId');
+                if (exportFolderIdElement && savedFolderId) {
+                    exportFolderIdElement.value = savedFolderId;
+                }
                 
-                // 直接ページをリダイレクト
-                window.location.href = fullAuthUrl;
-            } catch (error) {
-                alert('エクスポート処理の開始中にエラーが発生しました: ' + error.message);
-                console.error(error);
-            }
-        });
+                // エクスポートモーダルを表示
+                try {
+                    const exportModalElement = document.getElementById('exportModal');
+                    if (exportModalElement) {
+                        const exportModal = new bootstrap.Modal(exportModalElement);
+                        exportModal.show();
+                        addDebugLog('Google Driveエクスポートモーダルを表示しました');
+                    } else {
+                        console.error('エクスポートモーダル要素が見つかりません');
+                        alert('エラー: エクスポートモーダルが見つかりません');
+                    }
+                } catch (error) {
+                    console.error('エクスポートモーダル表示エラー:', error);
+                    addDebugLog(`エクスポートモーダル表示エラー: ${error.message}`);
+                    alert('エクスポート画面の表示中にエラーが発生しました');
+                }
+            });
+        } else {
+            console.error('Google Driveエクスポートボタンが見つかりません');
+        }
+        
+        // Google Driveエクスポート確定ボタンのイベントリスナー
+        const confirmExportBtn = document.getElementById('confirmExportBtn');
+        if (confirmExportBtn) {
+            confirmExportBtn.addEventListener('click', function() {
+                const minutes = document.getElementById('minutes');
+                if (!minutes) {
+                    console.error('議事録エリアが見つかりません');
+                    alert('エラー: 議事録エリアが見つかりません');
+                    return;
+                }
+                
+                const exportTitleElement = document.getElementById('exportTitle');
+                const exportFolderIdElement = document.getElementById('exportFolderId');
+                
+                if (!exportTitleElement) {
+                    console.error('エクスポートタイトル要素が見つかりません');
+                    alert('エラー: エクスポート設定要素が見つかりません');
+                    return;
+                }
+                
+                // タイトルとフォルダID（オプション）を取得
+                const title = exportTitleElement.value.trim() || '議事録';
+                const folderId = exportFolderIdElement ? exportFolderIdElement.value.trim() : '';
+                
+                // フォルダIDをローカルストレージに保存（次回利用のため）
+                if (folderId) {
+                    try {
+                        localStorage.setItem('googleDriveFolderId', folderId);
+                        const folderName = document.getElementById('selectedFolderName').textContent.replace('選択したフォルダ: ', '');
+                        if (folderName) {
+                            localStorage.setItem('googleDriveFolderName', folderName);
+                        }
+                        addDebugLog(`フォルダID ${folderId} を保存しました`);
+                    } catch (error) {
+                        addDebugLog(`フォルダID保存エラー: ${error.message}`);
+                    }
+                }
+                
+                try {
+                    // コンテンツをURLエンコード
+                    const encodedContent = encodeURIComponent(minutes.innerHTML);
+                    const encodedTitle = encodeURIComponent(title);
+                    
+                    // フォルダIDがあれば追加
+                    let fullAuthUrl = `/oauth/google?title=${encodedTitle}&content=${encodedContent}`;
+                    if (folderId) {
+                        fullAuthUrl += `&folder_id=${encodeURIComponent(folderId)}`;
+                    }
+                    
+                    // デバッグ情報
+                    addDebugLog(`Google Driveへエクスポート開始: ${title}`);
+                    if (folderId) {
+                        addDebugLog(`保存先フォルダID: ${folderId}`);
+                    }
+                    addDebugLog(`リダイレクト先: ${fullAuthUrl}`);
+                    
+                    // モーダルを閉じる
+                    const exportModalElement = document.getElementById('exportModal');
+                    if (exportModalElement) {
+                        const exportModal = bootstrap.Modal.getInstance(exportModalElement);
+                        if (exportModal) {
+                            exportModal.hide();
+                        }
+                    }
+                    
+                    // 直接ページをリダイレクト
+                    window.location.href = fullAuthUrl;
+                } catch (error) {
+                    addDebugLog(`エクスポートエラー: ${error.message}`);
+                    alert('エクスポート処理の開始中にエラーが発生しました: ' + error.message);
+                    console.error(error);
+                }
+            });
+        } else {
+            console.error('エクスポート確定ボタンが見つかりません');
+        }
+
+        // Notionにエクスポートするボタンのイベントリスナー
+        const exportToNotionBtn = document.getElementById('exportToNotionBtn');
+        if (exportToNotionBtn) {
+            exportToNotionBtn.addEventListener('click', function() {
+                const minutes = document.getElementById('minutes');
+                if (!minutes) {
+                    console.error('議事録エリアが見つかりません');
+                    alert('エラー: 議事録エリアが見つかりません');
+                    return;
+                }
+                
+                if (!minutes.innerHTML.trim()) {
+                    alert('エクスポートする議事録がありません');
+                    return;
+                }
+                
+                // ローカルストレージから以前のトークンとデータベースIDを復元
+                const savedToken = localStorage.getItem('notionToken');
+                const savedDatabaseId = localStorage.getItem('notionDatabaseId');
+                
+                const notionTokenElement = document.getElementById('notionToken');
+                if (notionTokenElement && savedToken) {
+                    notionTokenElement.value = savedToken;
+                }
+                
+                const notionDatabaseIdElement = document.getElementById('notionDatabaseId');
+                if (notionDatabaseIdElement && savedDatabaseId) {
+                    notionDatabaseIdElement.value = savedDatabaseId;
+                }
+                
+                // 議事録のタイトルを取得（h1タグの内容）
+                let title = '議事録';
+                const h1Match = minutes.innerHTML.match(/<h1>(.*?)<\/h1>/);
+                if (h1Match && h1Match[1]) {
+                    title = h1Match[1];
+                }
+                
+                // 現在の日時を追加
+                const now = new Date();
+                const dateStr = now.toISOString().split('T')[0];
+                
+                const notionTitleElement = document.getElementById('notionTitle');
+                if (notionTitleElement) {
+                    notionTitleElement.value = `${title}_${dateStr}`;
+                }
+                
+                // モーダルを表示
+                try {
+                    const notionModalElement = document.getElementById('notionModal');
+                    if (notionModalElement) {
+                        const notionModal = new bootstrap.Modal(notionModalElement);
+                        notionModal.show();
+                        addDebugLog('Notionエクスポートモーダルを表示しました');
+                    } else {
+                        console.error('Notionモーダル要素が見つかりません');
+                        alert('エラー: Notionモーダルが見つかりません');
+                    }
+                } catch (error) {
+                    console.error('Notionモーダル表示エラー:', error);
+                    addDebugLog(`Notionモーダル表示エラー: ${error.message}`);
+                    alert('Notionエクスポート画面の表示中にエラーが発生しました');
+                }
+            });
+        } else {
+            console.error('Notionエクスポートボタンが見つかりません');
+        }
+        
+        // Notionへのエクスポートを確定するボタンのイベントリスナー
+        const confirmNotionBtn = document.getElementById('confirmNotionBtn');
+        if (confirmNotionBtn) {
+            confirmNotionBtn.addEventListener('click', async function() {
+                const minutes = document.getElementById('minutes');
+                if (!minutes) {
+                    console.error('議事録エリアが見つかりません');
+                    alert('エラー: 議事録エリアが見つかりません');
+                    return;
+                }
+                
+                const notionTitleElement = document.getElementById('notionTitle');
+                const notionTokenElement = document.getElementById('notionToken');
+                const notionDatabaseIdElement = document.getElementById('notionDatabaseId');
+                
+                if (!notionTitleElement || !notionTokenElement || !notionDatabaseIdElement) {
+                    console.error('Notion設定フォームの要素が見つかりません');
+                    alert('エラー: Notion設定フォームの要素が見つかりません');
+                    return;
+                }
+                
+                const title = notionTitleElement.value.trim();
+                const token = notionTokenElement.value.trim();
+                const databaseId = notionDatabaseIdElement.value.trim();
+                
+                // 入力チェック
+                if (!token) {
+                    alert('Notion API Tokenを入力してください');
+                    return;
+                }
+                
+                if (!databaseId) {
+                    alert('データベースIDを入力してください');
+                    return;
+                }
+                
+                // トークンとデータベースIDをローカルストレージに保存（セキュリティのためセッションのみ）
+                localStorage.setItem('notionToken', token);
+                localStorage.setItem('notionDatabaseId', databaseId);
+                
+                // UI要素の取得
+                const notionProcessing = document.getElementById('notionProcessing');
+                const notionSuccess = document.getElementById('notionSuccess');
+                const notionError = document.getElementById('notionError');
+                
+                // 処理中表示
+                if (notionProcessing) notionProcessing.classList.remove('d-none');
+                if (notionSuccess) notionSuccess.classList.add('d-none');
+                if (notionError) notionError.classList.add('d-none');
+                this.disabled = true;
+                
+                try {
+                    addDebugLog('Notionエクスポート処理を開始します');
+                    // HTMLからMarkdownへの簡易変換
+                    const markdownContent = htmlToMarkdown(minutes.innerHTML);
+                    
+                    // APIリクエスト
+                    addDebugLog('Notion APIリクエスト送信中...');
+                    const response = await fetch('/export-to-notion/', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            title: title,
+                            content: markdownContent,
+                            token: token,
+                            database_id: databaseId
+                        })
+                    });
+                    
+                    // レスポンスチェック
+                    if (!response) {
+                        throw new Error('APIからの応答がありません');
+                    }
+                    
+                    addDebugLog(`APIレスポンス: ${response.status} ${response.statusText}`);
+                    
+                    let data;
+                    try {
+                        data = await response.json();
+                    } catch (jsonError) {
+                        addDebugLog(`JSON解析エラー: ${jsonError.message}`);
+                        throw new Error('APIレスポンスの解析に失敗しました');
+                    }
+                    
+                    if (response.ok) {
+                        // 成功時
+                        if (notionSuccess) {
+                            notionSuccess.classList.remove('d-none');
+                            
+                            const pageLinkElement = document.getElementById('notionPageLink');
+                            if (pageLinkElement && data.page_url) {
+                                pageLinkElement.href = data.page_url;
+                                pageLinkElement.textContent = data.page_url;
+                            }
+                            
+                            addDebugLog(`Notionページ作成成功: ${data.page_url || 'URL未取得'}`);
+                        }
+                    } else {
+                        // エラー時
+                        if (notionError) {
+                            notionError.classList.remove('d-none');
+                            notionError.textContent = `エラー: ${data.error || '不明なエラーが発生しました'}`;
+                        }
+                        addDebugLog(`Notionエクスポートエラー: ${data.error || '不明なエラー'}`);
+                    }
+                } catch (error) {
+                    console.error('Notionエクスポート中にエラー:', error);
+                    if (notionError) {
+                        notionError.classList.remove('d-none');
+                        notionError.textContent = `エラー: ${error.message || '不明なエラーが発生しました'}`;
+                    }
+                    addDebugLog(`Notionエクスポートエラー: ${error.message}`);
+                } finally {
+                    // 処理中表示を非表示
+                    if (notionProcessing) notionProcessing.classList.add('d-none');
+                    this.disabled = false;
+                }
+            });
+        } else {
+            console.error('Notion確定ボタンが見つかりません');
+        }
+        
+        // HTMLをMarkdownに変換する関数（簡易版）
+        function htmlToMarkdown(html) {
+            let markdown = html;
+            
+            // 見出し
+            markdown = markdown.replace(/<h1>(.*?)<\/h1>/g, '# $1\n\n');
+            markdown = markdown.replace(/<h2>(.*?)<\/h2>/g, '## $1\n\n');
+            markdown = markdown.replace(/<h3>(.*?)<\/h3>/g, '### $1\n\n');
+            
+            // リスト
+            markdown = markdown.replace(/<li>(.*?)<\/li>/g, '- $1\n');
+            markdown = markdown.replace(/<ul>(.*?)<\/ul>/g, '$1\n');
+            markdown = markdown.replace(/<ol>(.*?)<\/ol>/g, '$1\n');
+            
+            // 段落
+            markdown = markdown.replace(/<p>(.*?)<\/p>/g, '$1\n\n');
+            
+            // 太字・斜体
+            markdown = markdown.replace(/<strong>(.*?)<\/strong>/g, '**$1**');
+            markdown = markdown.replace(/<em>(.*?)<\/em>/g, '*$1*');
+            
+            // 改行
+            markdown = markdown.replace(/<br\s*\/?>/g, '\n');
+            
+            // その他のHTMLタグを除去
+            markdown = markdown.replace(/<[^>]*>/g, '');
+            
+            // 余分な改行を削除
+            markdown = markdown.replace(/\n\n\n+/g, '\n\n');
+            
+            return markdown.trim();
+        }
     </script>
 </body>
 </html> 
