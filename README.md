@@ -71,7 +71,7 @@ uvicorn main:app --reload
 
 5. デフォルトのリージョンを設定：
 ```bash
-gcloud config set compute/region asia-northeast1
+gcloud config set compute/region asia-northeast2
 ```
 
 ## Google Drive API 認証情報の設定
@@ -149,7 +149,7 @@ gcloud builds submit --tag gcr.io/your-project-id/mtg-minutes
 gcloud run deploy mtg-minutes-service \
   --image gcr.io/your-project-id/mtg-minutes \
   --platform managed \
-  --region asia-northeast1 \
+  --region asia-northeast2 \
   --allow-unauthenticated \
   --set-secrets=OPENAI_API_KEY=openai-api-key:latest,GOOGLE_CLIENT_ID=google-client-id:latest,GOOGLE_CLIENT_SECRET=google-client-secret:latest
 ```
@@ -157,17 +157,17 @@ gcloud run deploy mtg-minutes-service \
 4. サービスURLの取得とリダイレクトURIの設定:
 ```bash
 # デプロイしたサービスのURLを取得
-SERVICE_URL=$(gcloud run services describe mtg-minutes-service --region asia-northeast1 --format="value(status.url)")
+SERVICE_URL=$(gcloud run services describe mtg-minutes-service --region asia-northeast2 --format="value(status.url)")
 echo $SERVICE_URL
 
 # リダイレクトURIを環境変数として設定
 gcloud run services update mtg-minutes-service \
-  --region asia-northeast1 \
+  --region asia-northeast2 \
   --update-env-vars=REDIRECT_URI=${SERVICE_URL}/oauth/callback
 
 # 必要に応じてサービスアカウントJSONの設定
 gcloud run services update mtg-minutes-service \
-  --region asia-northeast1 \
+  --region asia-northeast2 \
   --update-secrets=SERVICE_ACCOUNT_JSON=google-service-account-key:latest
 ```
 
@@ -192,7 +192,7 @@ gcloud builds submit --tag gcr.io/your-project-id/mtg-minutes
 gcloud run deploy mtg-minutes-service \
   --image gcr.io/your-project-id/mtg-minutes \
   --platform managed \
-  --region asia-northeast1
+  --region asia-northeast2
 ```
 
 2. シークレットのみを更新する場合:
@@ -202,14 +202,14 @@ echo -n "new-api-key" | gcloud secrets versions add openai-api-key --data-file=-
 
 # サービスを再起動（シークレットの変更を反映）
 gcloud run services update mtg-minutes-service \
-  --region asia-northeast1
+  --region asia-northeast2
 ```
 
 3. 環境変数を更新する場合:
 ```bash
 # 例：リダイレクトURIを更新
 gcloud run services update mtg-minutes-service \
-  --region asia-northeast1 \
+  --region asia-northeast2 \
   --update-env-vars=REDIRECT_URI=https://your-new-url.an.run.app/oauth/callback
 ```
 
@@ -232,7 +232,7 @@ echo -n "new-api-key" | gcloud secrets versions add openai-api-key --data-file=-
 ```bash
 # シークレットの更新を反映
 gcloud run services update mtg-minutes-service \
-  --region asia-northeast1
+  --region asia-northeast2
 ```
 
 ## トラブルシューティング
@@ -280,7 +280,7 @@ gcloud builds log [BUILD_ID]
 5. デプロイをやり直す場合:
 ```bash
 # 既存のリソースを削除
-gcloud run services delete mtg-minutes-service --region asia-northeast1 --quiet
+gcloud run services delete mtg-minutes-service --region asia-northeast2 --quiet
 
 # 手順に従って再デプロイ
 # （上記の初回デプロイ手順を参照）
